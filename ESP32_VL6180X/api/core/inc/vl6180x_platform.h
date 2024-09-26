@@ -36,6 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* this is a typical ansi and posix example with multithread and i2c lock concern */
 #include <unistd.h>
 #include <pthread.h>
+#include "driver/i2c_master.h"
 
 /**
  * @file vl6180x_platform.h
@@ -95,7 +96,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * Value __0__ =>  Multiple device capable. User must review "device" structure and type in vl6180x_platform.h files.
  * @ingroup api_platform
  */
-#define VL6180x_SINGLE_DEVICE_DRIVER 0
+#define VL6180x_SINGLE_DEVICE_DRIVER 1
 
 /**
  * @def VL6180X_SAFE_POLLING_ENTER
@@ -112,7 +113,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * To be safe set these option to 1
  * @ingroup api_platform
  */
-#define VL6180X_SAFE_POLLING_ENTER  0
+#define VL6180X_SAFE_POLLING_ENTER  1
 
 /**
  * @def VL6180x_HAVE_MULTI_READ
@@ -147,7 +148,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "vl6180x_def.h"
 
-#include "driver/i2c.h"   /*!< user specific field */
+#include "driver/i2c_master.h"   /*!< user specific field */
 
 //TODO: modify this
 #if VL6180x_SINGLE_DEVICE_DRIVER
@@ -158,7 +159,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * @ingroup api_platform
  */
     /* //![device_type_int] */
-    typedef uint8_t VL6180xDev_t; /* simplest single device example "dev" is the i2c device address in the platform AL*/
+    // typedef uint8_t VL6180xDev_t; /* simplest single device example "dev" is the i2c device address in the platform AL*/
     /* //![device_type_int] */
 
 #else /* VL6180x_SINGLE_DEVICE_DRIVER */
@@ -210,7 +211,7 @@ typedef struct MyDev_t *VL6180xDev_t;
  * @param dev The device
  * @ingroup api_platform
  */
-void VL6180x_PollDelay(VL6180xDev_t dev); /* usualy best implemanted a a real fucntion */
+void VL6180x_PollDelay(); /* usualy best implemanted a a real fucntion */
 
 /** @def VL6180x_PollDelay
  *  @brief Default value : does nothing. Macro to be deleted it you implement a real function

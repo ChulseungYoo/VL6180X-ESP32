@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright © 2015, STMicroelectronics International N.V.
+Copyright ï¿½ 2015, STMicroelectronics International N.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -66,7 +66,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Set to 0 if ALS is not used in application. This can help reducing code size if it is a concern.
  */
-#define VL6180x_ALS_SUPPORT      1
+#define VL6180x_ALS_SUPPORT      0
 
 /**
  * @def VL6180x_HAVE_DMAX_RANGING

@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright © 2015, STMicroelectronics International N.V.
+Copyright ï¿½ 2015, STMicroelectronics International N.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * $Revision: 2768 $
  */
 #include "vl6180x_api.h"
-
+#include "esp_log.h"
+#define TAG "VL6180X"
 #define VL6180x_9to7Conv(x) (x)
 
 /* TODO when set all "cached" value with "default init" are updated after init from register read back */
@@ -61,8 +62,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #if VL6180x_SINGLE_DEVICE_DRIVER
 extern  struct VL6180xDevData_t SingleVL6180xDevData;
-#define VL6180xDevDataGet(dev, field) (SingleVL6180xDevData.field)
-#define VL6180xDevDataSet(dev, field, data) SingleVL6180xDevData.field = (data)
+#define VL6180xDevDataGet(field) (SingleVL6180xDevData.field)
+#define VL6180xDevDataSet(field, data) SingleVL6180xDevData.field = (data)
 #endif
 
 #define LUXRES_FIX_PREC 8
@@ -70,8 +71,8 @@ extern  struct VL6180xDevData_t SingleVL6180xDevData;
 #define AN_GAIN_MULT    (1 << GAIN_FIX_PREC)
 
 
-static int32_t _GetAveTotalTime(VL6180xDev_t dev);
-static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(VL6180xDev_t dev);
+static int32_t _GetAveTotalTime(i2c_master_dev_handle_t* handle);
+static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(i2c_master_dev_handle_t* handle);
 
 /**
  * ScalerLookUP scaling factor-1 to register #RANGE_SCALER lookup
@@ -81,19 +82,19 @@ static const uint16_t ScalerLookUP[]      ROMABLE_DATA = {253, 127, 84}; /* look
  * scaling factor to Upper limit look up
  */
 static const uint16_t UpperLimitLookUP[]  ROMABLE_DATA = {185, 370, 580}; /* lookup table for scaling->limit  1x2x3x */
-/**
- * Als Code gain to fix point gain lookup
- */
-static const uint16_t AlsGainLookUp[8]    ROMABLE_DATA = {
-	(uint16_t)(20.0f * AN_GAIN_MULT),
-	(uint16_t)(10.0f * AN_GAIN_MULT),
-	(uint16_t)(5.0f  * AN_GAIN_MULT),
-	(uint16_t)(2.5f  * AN_GAIN_MULT),
-	(uint16_t)(1.67f * AN_GAIN_MULT),
-	(uint16_t)(1.25f * AN_GAIN_MULT),
-	(uint16_t)(1.0f  * AN_GAIN_MULT),
-	(uint16_t)(40.0f * AN_GAIN_MULT),
-};
+// /**
+//  * Als Code gain to fix point gain lookup
+//  */
+// static const uint16_t AlsGainLookUp[8]    ROMABLE_DATA = {
+// 	(uint16_t)(20.0f * AN_GAIN_MULT),
+// 	(uint16_t)(10.0f * AN_GAIN_MULT),
+// 	(uint16_t)(5.0f  * AN_GAIN_MULT),
+// 	(uint16_t)(2.5f  * AN_GAIN_MULT),
+// 	(uint16_t)(1.67f * AN_GAIN_MULT),
+// 	(uint16_t)(1.25f * AN_GAIN_MULT),
+// 	(uint16_t)(1.0f  * AN_GAIN_MULT),
+// 	(uint16_t)(40.0f * AN_GAIN_MULT),
+// };
 
 
 #if VL6180x_RANGE_STATUS_ERRSTRING
@@ -129,21 +130,21 @@ const char *VL6180x_RangeGetStatusErrString(uint8_t RangeErrCode)
 #endif
 
 #if VL6180x_UPSCALE_SUPPORT == 1
-	#define _GetUpscale(dev, ...)  1
+	#define _GetUpscale(handle, ...)  1
 	#define _SetUpscale(...) -1
 	#define DEF_UPSCALE 1
 #elif VL6180x_UPSCALE_SUPPORT == 2
-	#define _GetUpscale(dev, ...)  2
+	#define _GetUpscale(handle, ...)  2
 	#define _SetUpscale(...)
 	#define DEF_UPSCALE 2
 #elif VL6180x_UPSCALE_SUPPORT == 3
-	#define _GetUpscale(dev, ...)  3
+	#define _GetUpscale(handle, ...)  3
 	#define _SetUpscale(...)
 	#define DEF_UPSCALE 3
 #else
 	#define DEF_UPSCALE (-(VL6180x_UPSCALE_SUPPORT))
-	#define _GetUpscale(dev, ...) VL6180xDevDataGet(dev, UpscaleFactor)
-	#define _SetUpscale(dev, Scaling) VL6180xDevDataSet(dev, UpscaleFactor, Scaling)
+	#define _GetUpscale(...) VL6180xDevDataGet(UpscaleFactor)
+	#define _SetUpscale(Scaling) VL6180xDevDataSet(UpscaleFactor, Scaling)
 #endif
 
 
@@ -174,45 +175,45 @@ struct VL6180xDevData_t VL6180x_DEV_DATA_ATTR  SingleVL6180xDevData = {
 
 
 #if VL6180x_WRAP_AROUND_FILTER_SUPPORT || VL6180x_HAVE_DMAX_RANGING
-static int _GetRateResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData);
+static int _GetRateResult(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData);
 #endif
 
 #if VL6180x_WRAP_AROUND_FILTER_SUPPORT
-static int _filter_Init(VL6180xDev_t dev);
-static int _filter_GetResult(VL6180xDev_t dev, VL6180x_RangeData_t *pData);
-	#define _IsWrapArroundActive(dev) VL6180xDevDataGet(dev, WrapAroundFilterActive)
+static int _filter_Init();
+static int _filter_GetResult(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pData);
+	#define _IsWrapArroundActive() VL6180xDevDataGet(WrapAroundFilterActive)
 #else
-	#define _IsWrapArroundActive(dev) 0
+	#define _IsWrapArroundActive(handle) 0
 #endif
 
 
 #if VL6180x_HAVE_DMAX_RANGING
-	void _DMax_OneTimeInit(VL6180xDev_t dev);
-	static int _DMax_InitData(VL6180xDev_t dev);
-	static int _DMax_Compute(VL6180xDev_t dev, VL6180x_RangeData_t *pRange);
-	#define _IsDMaxActive(dev) VL6180xDevDataGet(dev, DMaxEnable)
+	void _DMax_OneTimeInit(i2c_master_dev_handle_t* handle);
+	static int _DMax_InitData(i2c_master_dev_handle_t* handle);
+	static int _DMax_Compute(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRange);
+	#define _IsDMaxActive() VL6180xDevDataGet(DMaxEnable)
 #else
 	#define _DMax_InitData(...) 0 /* success */
 	#define _DMax_OneTimeInit(...) (void)0
 	#define _IsDMaxActive(...) 0
 #endif
 
-static int VL6180x_RangeStaticInit(VL6180xDev_t dev);
-static int  VL6180x_UpscaleStaticInit(VL6180xDev_t dev);
+static int VL6180x_RangeStaticInit(i2c_master_dev_handle_t* handle);
+static int  VL6180x_UpscaleStaticInit(i2c_master_dev_handle_t* handle);
 
-int VL6180x_WaitDeviceBooted(VL6180xDev_t dev)
+int VL6180x_WaitDevBooted(i2c_master_dev_handle_t* handle)
 {
 	uint8_t FreshOutReset;
 	int status;
 	LOG_FUNCTION_START("");
 	do {
-		status = VL6180x_RdByte(dev, SYSTEM_FRESH_OUT_OF_RESET, &FreshOutReset);
+		status = VL6180x_RdByte(handle, SYSTEM_FRESH_OUT_OF_RESET, &FreshOutReset);
 	} while (FreshOutReset != 1 && status == 0);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_InitData(VL6180xDev_t dev)
+int VL6180x_InitData(i2c_master_dev_handle_t* handle)
 {
 	int status, dmax_status ;
 	int8_t offset;
@@ -223,65 +224,65 @@ int VL6180x_InitData(VL6180xDev_t dev)
 
 	LOG_FUNCTION_START("");
 
-	VL6180xDevDataSet(dev, EceFactorM, DEF_ECE_FACTOR_M);
-	VL6180xDevDataSet(dev, EceFactorD, DEF_ECE_FACTOR_D);
+	VL6180xDevDataSet(EceFactorM, DEF_ECE_FACTOR_M);
+	VL6180xDevDataSet(EceFactorD, DEF_ECE_FACTOR_D);
 
-	VL6180xDevDataSet(dev, RangeIgnore.Enabled, 0);
+	VL6180xDevDataSet(RangeIgnore.Enabled, 0);
 
 #ifdef VL6180x_HAVE_UPSCALE_DATA
-	VL6180xDevDataSet(dev, UpscaleFactor,  DEF_UPSCALE);
+	VL6180xDevDataSet(UpscaleFactor,  DEF_UPSCALE);
 #endif
 
 #ifdef VL6180x_HAVE_ALS_DATA
-	VL6180xDevDataSet(dev, IntegrationPeriod, DEF_INT_PEFRIOD);
-	VL6180xDevDataSet(dev, AlsGainCode, DEF_ALS_GAIN);
-	VL6180xDevDataSet(dev, AlsScaler, DEF_ALS_SCALER);
+	VL6180xDevDataSet(IntegrationPeriod, DEF_INT_PEFRIOD);
+	VL6180xDevDataSet(AlsGainCode, DEF_ALS_GAIN);
+	VL6180xDevDataSet(AlsScaler, DEF_ALS_SCALER);
 #endif
 
 #ifdef VL6180x_HAVE_WRAP_AROUND_DATA
-	VL6180xDevDataSet(dev, WrapAroundFilterActive, (VL6180x_WRAP_AROUND_FILTER_SUPPORT > 0));
-	VL6180xDevDataSet(dev, DMaxEnable, DEF_DMAX_ENABLE);
+	VL6180xDevDataSet(WrapAroundFilterActive, (VL6180x_WRAP_AROUND_FILTER_SUPPORT > 0));
+	VL6180xDevDataSet(DMaxEnable, DEF_DMAX_ENABLE);
 #endif
 
-	_DMax_OneTimeInit(dev);
+	_DMax_OneTimeInit(handle);
 	do {
 
 		/* backup offset initial value from nvm these must be done prior any over call that use offset */
-		status = VL6180x_RdByte(dev, SYSRANGE_PART_TO_PART_RANGE_OFFSET, (uint8_t *)&offset);
+		status = VL6180x_RdByte(handle, SYSRANGE_PART_TO_PART_RANGE_OFFSET, (uint8_t *)&offset);
 		if (status) {
-			VL6180x_ErrLog("SYSRANGE_PART_TO_PART_RANGE_OFFSET rd fail");
+			ESP_LOGE(TAG, "SYSRANGE_PART_TO_PART_RANGE_OFFSET rd fail");
 			break;
 		}
-		VL6180xDevDataSet(dev, Part2PartOffsetNVM, offset);
+		VL6180xDevDataSet(Part2PartOffsetNVM, offset);
 
-		status = VL6180x_RdDWord(dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, &CalValue);
+		status = VL6180x_RdDWord(handle, SYSRANGE_RANGE_IGNORE_THRESHOLD, &CalValue);
 		if (status) {
-			VL6180x_ErrLog("Part2PartAmbNVM rd fail");
+			ESP_LOGE(TAG, "Part2PartAmbNVM rd fail");
 			break;
 		}
 		if ((CalValue&0xFFFF0000) == 0) {
 			CalValue = 0x00CE03F8;
 		}
-		VL6180xDevDataSet(dev, Part2PartAmbNVM, CalValue);
+		VL6180xDevDataSet(Part2PartAmbNVM, CalValue);
 
-		status = VL6180x_RdWord(dev, SYSRANGE_CROSSTALK_COMPENSATION_RATE , &u16);
+		status = VL6180x_RdWord(handle, SYSRANGE_CROSSTALK_COMPENSATION_RATE , &u16);
 		if (status) {
-			VL6180x_ErrLog("SYSRANGE_CROSSTALK_COMPENSATION_RATE rd fail ");
+			ESP_LOGE(TAG, "SYSRANGE_CROSSTALK_COMPENSATION_RATE rd fail ");
 			break;
 		}
 		XTalkCompRate_KCps = Fix7_2_KCPs(u16);
-		VL6180xDevDataSet(dev, XTalkCompRate_KCps, XTalkCompRate_KCps);
+		VL6180xDevDataSet(XTalkCompRate_KCps, XTalkCompRate_KCps);
 
-		dmax_status = _DMax_InitData(dev);
+		dmax_status = _DMax_InitData(handle);
 		if (dmax_status < 0) {
-			VL6180x_ErrLog("DMax init failure");
+			ESP_LOGE(TAG, "DMax init failure");
 			break;
 		}
 
 		/* Read or wait for fresh out of reset  */
-		status = VL6180x_RdByte(dev, SYSTEM_FRESH_OUT_OF_RESET, &FreshOutReset);
+		status = VL6180x_RdByte(handle, SYSTEM_FRESH_OUT_OF_RESET, &FreshOutReset);
 		if (status) {
-			VL6180x_ErrLog("SYSTEM_FRESH_OUT_OF_RESET rd fail");
+			ESP_LOGE(TAG, "SYSTEM_FRESH_OUT_OF_RESET rd fail");
 			break;
 		}
 		if (FreshOutReset != 1 || dmax_status)
@@ -293,63 +294,63 @@ int VL6180x_InitData(VL6180xDev_t dev)
 	return status;
 }
 
-int8_t VL6180x_GetOffsetCalibrationData(VL6180xDev_t dev)
+int8_t VL6180x_GetOffsetCalibrationData(i2c_master_dev_handle_t* handle)
 {
 	int8_t offset;
 	LOG_FUNCTION_START("");
-	offset = VL6180xDevDataGet(dev, Part2PartOffsetNVM);
+	offset = VL6180xDevDataGet(Part2PartOffsetNVM);
 	LOG_FUNCTION_END(offset);
 	return offset;
 }
 
-int  VL6180x_SetOffsetCalibrationData(VL6180xDev_t dev, int8_t offset)
+int  VL6180x_SetOffsetCalibrationData(i2c_master_dev_handle_t* handle, int8_t offset)
 {
 	int status;
 	LOG_FUNCTION_START("%d", offset);
-	VL6180xDevDataSet(dev, Part2PartOffsetNVM, offset);
-	offset /= _GetUpscale(dev);
-	status = VL6180x_WrByte(dev, SYSRANGE_PART_TO_PART_RANGE_OFFSET, offset);
+	VL6180xDevDataSet(Part2PartOffsetNVM, offset);
+	offset /= _GetUpscale(handle);
+	status = VL6180x_WrByte(handle, SYSRANGE_PART_TO_PART_RANGE_OFFSET, offset);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int  VL6180x_SetXTalkCompensationRate(VL6180xDev_t dev, FixPoint97_t Rate)
+int  VL6180x_SetXTalkCompensationRate(i2c_master_dev_handle_t* handle, FixPoint97_t Rate)
 {
 	int status;
 	LOG_FUNCTION_START("%d", Rate);
-	status = VL6180x_WrWord(dev, SYSRANGE_CROSSTALK_COMPENSATION_RATE, Rate);
+	status = VL6180x_WrWord(handle, SYSRANGE_CROSSTALK_COMPENSATION_RATE, Rate);
 	if (status == 0) {
 		uint32_t XTalkCompRate_KCps;
 		XTalkCompRate_KCps = Fix7_2_KCPs(Rate);
-		VL6180xDevDataSet(dev, XTalkCompRate_KCps, XTalkCompRate_KCps);
+		VL6180xDevDataSet(XTalkCompRate_KCps, XTalkCompRate_KCps);
 		/* update dmax whenever xtalk rate changes */
-		status = _DMax_InitData(dev);
+		status = _DMax_InitData(handle);
 	}
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_SetI2CAddress(VL6180xDev_t dev, uint8_t NewAddress)
+int VL6180x_SetI2CAddress(i2c_master_dev_handle_t* handle, uint8_t NewAddress)
 {
 	int status;
 	LOG_FUNCTION_START("");
 
-	status = VL6180x_WrByte(dev, I2C_SLAVE_DEVICE_ADDRESS, NewAddress / 2);
+	status = VL6180x_WrByte(handle, I2C_SLAVE_DEVICE_ADDRESS, NewAddress / 2);
 	if (status) {
-		VL6180x_ErrLog("new i2c addr Wr fail");
+		ESP_LOGE(TAG, "new i2c addr Wr fail");
 	}
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-uint16_t VL6180x_GetUpperLimit(VL6180xDev_t dev)
+uint16_t VL6180x_GetUpperLimit(i2c_master_dev_handle_t* handle)
 {
 	uint16_t limit;
 	int scaling;
 
 	LOG_FUNCTION_START("");
 
-	scaling = _GetUpscale(dev);
+	scaling = _GetUpscale(handle);
 	/* FIXME we do assume here _GetUpscale is valid if  user call us prior to init we may overflow the LUT  mem area */
 	limit = UpperLimitLookUP[scaling - 1];
 
@@ -359,23 +360,23 @@ uint16_t VL6180x_GetUpperLimit(VL6180xDev_t dev)
 
 
 
-int VL6180x_StaticInit(VL6180xDev_t dev)
+int VL6180x_StaticInit(i2c_master_dev_handle_t* handle)
 {
 	int status = 0, init_status;
 	LOG_FUNCTION_START("");
 
 	/* TODO doc When using configurable scaling but using 1x as start condition
 	 * load tunning upscale  or not ??? */
-	if (_GetUpscale(dev) == 1 && !(VL6180x_UPSCALE_SUPPORT < 0))
-		init_status = VL6180x_RangeStaticInit(dev);
+	if (_GetUpscale(handle) == 1 && !(VL6180x_UPSCALE_SUPPORT < 0))
+		init_status = VL6180x_RangeStaticInit(handle);
 	else
-		init_status = VL6180x_UpscaleStaticInit(dev);
+		init_status = VL6180x_UpscaleStaticInit(handle);
 
 	if (init_status < 0) {
-		VL6180x_ErrLog("StaticInit fail");
+		ESP_LOGE(TAG, "StaticInit fail");
 		goto error;
 	} else if (init_status > 0) {
-		VL6180x_ErrLog("StaticInit warning");
+		ESP_LOGE(TAG, "StaticInit warning");
 	}
 
 	#if REFRESH_CACHED_DATA_AFTER_INIT
@@ -383,20 +384,20 @@ int VL6180x_StaticInit(VL6180xDev_t dev)
 	/* update cached value after tuning applied */
 	do {
 		uint8_t data;
-		status =  VL6180x_RdByte(dev, FW_ALS_RESULT_SCALER, &data);
+		status =  VL6180x_RdByte(handle, FW_ALS_RESULT_SCALER, &data);
 		if (status)
 			break;
-		VL6180xDevDataSet(dev, AlsScaler, data);
+		VL6180xDevDataSet(AlsScaler, data);
 
-		status =  VL6180x_RdByte(dev, SYSALS_ANALOGUE_GAIN, &data);
+		status =  VL6180x_RdByte(handle, SYSALS_ANALOGUE_GAIN, &data);
 		if (status)
 			break;
-		VL6180x_AlsSetAnalogueGain(dev, data);
+		VL6180x_AlsSetAnalogueGain(handle, data);
 	} while (0);
 	#endif
 	#endif /* REFRESH_CACHED_DATA_AFTER_INIT */
 	if (status < 0) {
-		VL6180x_ErrLog("StaticInit fail");
+		ESP_LOGE(TAG, "StaticInit fail");
 	}
 	if (!status && init_status) {
 		status = init_status;
@@ -407,7 +408,7 @@ error:
 }
 
 
-int VL6180x_SetGroupParamHold(VL6180xDev_t dev, int Hold)
+int VL6180x_SetGroupParamHold(i2c_master_dev_handle_t* handle, int Hold)
 {
 	int status;
 	uint8_t value;
@@ -417,59 +418,59 @@ int VL6180x_SetGroupParamHold(VL6180xDev_t dev, int Hold)
 		value = 1;
 	else
 		value = 0;
-	status = VL6180x_WrByte(dev, SYSTEM_GROUPED_PARAMETER_HOLD, value);
+	status = VL6180x_WrByte(handle, SYSTEM_GROUPED_PARAMETER_HOLD, value);
 
 	LOG_FUNCTION_END(status);
 	return status;
 
 }
 
-int VL6180x_Prepare(VL6180xDev_t dev)
+int VL6180x_Prepare(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
 
 	do {
-		status = VL6180x_StaticInit(dev);
+		status = VL6180x_StaticInit(handle);
 		if (status < 0)
 			break;
 
 		/* set range InterruptMode to new sample */
-		status = VL6180x_RangeConfigInterrupt(dev, CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY);
+		status = VL6180x_RangeConfigInterrupt(handle, CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY);
 		if (status)
 			break;
 
 		/* set default threshold */
-		status = VL6180x_RangeSetRawThresholds(dev, 10, 200);
+		status = VL6180x_RangeSetRawThresholds(handle, 10, 200);
 		if (status) {
-			VL6180x_ErrLog("VL6180x_RangeSetRawThresholds fail");
+			ESP_LOGE(TAG, "VL6180x_RangeSetRawThresholds fail");
 			break;
 		}
 	#if VL6180x_ALS_SUPPORT
-		status = VL6180x_AlsSetIntegrationPeriod(dev, 100);
+		status = VL6180x_AlsSetIntegrationPeriod(handle, 100);
 		if (status)
 			break;
-		status = VL6180x_AlsSetInterMeasurementPeriod(dev,  200);
+		status = VL6180x_AlsSetInterMeasurementPeriod(handle,  200);
 		if (status)
 			break;
-		status = VL6180x_AlsSetAnalogueGain(dev,  0);
+		status = VL6180x_AlsSetAnalogueGain(handle,  0);
 		if (status)
 			break;
-		status = VL6180x_AlsSetThresholds(dev, 0, 0xFF);
+		status = VL6180x_AlsSetThresholds(handle, 0, 0xFF);
 		if (status)
 			break;
 		/* set Als InterruptMode to new sample */
-		status = VL6180x_AlsConfigInterrupt(dev, CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY);
+		status = VL6180x_AlsConfigInterrupt(handle, CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY);
 		if (status) {
-			VL6180x_ErrLog("VL6180x_AlsConfigInterrupt fail");
+			ESP_LOGE(TAG, "VL6180x_AlsConfigInterrupt fail");
 			break;
 		}
 	#endif
 	#if VL6180x_WRAP_AROUND_FILTER_SUPPORT
-		_filter_Init(dev);
+		_filter_Init(handle);
 	#endif
 		/* make sure to reset any left previous condition that can hangs first poll */
-		status = VL6180x_ClearAllInterrupt(dev);
+		status = VL6180x_ClearAllInterrupt(handle);
 	} while (0);
 	LOG_FUNCTION_END(status);
 
@@ -477,7 +478,7 @@ int VL6180x_Prepare(VL6180xDev_t dev)
 }
 
 #if VL6180x_ALS_SUPPORT
-int VL6180x_AlsGetLux(VL6180xDev_t dev, lux_t *pLux)
+int VL6180x_AlsGetLux(i2c_master_dev_handle_t* handle, lux_t *pLux)
 {
 	int status;
 	uint16_t RawAls;
@@ -494,16 +495,16 @@ int VL6180x_AlsGetLux(VL6180xDev_t dev, lux_t *pLux)
 
 	LOG_FUNCTION_START("%p", pLux);
 
-	status = VL6180x_RdWord(dev, RESULT_ALS_VAL, &RawAls);
+	status = VL6180x_RdWord(handle, RESULT_ALS_VAL, &RawAls);
 	if (!status) {
 		/* wer are yet here at no fix point */
-		IntPeriod = VL6180xDevDataGet(dev, IntegrationPeriod);
-		AlsScaler = VL6180xDevDataGet(dev, AlsScaler);
+		IntPeriod = VL6180xDevDataGet(IntegrationPeriod);
+		AlsScaler = VL6180xDevDataGet(AlsScaler);
 		IntPeriod++; /* what stored is real time  ms -1 and it can be 0 for or 0 or 1ms */
 		luxValue = (uint32_t)RawAls * LuxResxIntIme; /* max # 16+8bits + 6bit (0.56*100)  */
 		luxValue /= IntPeriod;                         /* max # 16+8bits + 6bit 16+8+1 to 9 bit */
 		/* between  29 - 21 bit */
-		AlsAnGain = VL6180xDevDataGet(dev, AlsGainCode);
+		AlsAnGain = VL6180xDevDataGet(AlsGainCode);
 		GainFix = AlsGainLookUp[AlsAnGain];
 		luxValue = luxValue / (AlsScaler * GainFix);
 		*pLux = luxValue;
@@ -513,16 +514,16 @@ int VL6180x_AlsGetLux(VL6180xDev_t dev, lux_t *pLux)
 	return status;
 }
 
-int VL6180x_AlsGetMeasurement(VL6180xDev_t dev, VL6180x_AlsData_t *pAlsData)
+int VL6180x_AlsGetMeasurement(i2c_master_dev_handle_t* handle, VL6180x_AlsData_t *pAlsData)
 {
 	int status;
 	uint8_t ErrStatus;
 
 	LOG_FUNCTION_START("%p", pAlsData);
 
-	status = VL6180x_AlsGetLux(dev, &pAlsData->lux);
+	status = VL6180x_AlsGetLux(handle, &pAlsData->lux);
 	if (!status) {
-		status = VL6180x_RdByte(dev, RESULT_ALS_STATUS, &ErrStatus);
+		status = VL6180x_RdByte(handle, RESULT_ALS_STATUS, &ErrStatus);
 		pAlsData->errorStatus = ErrStatus >> 4;
 	}
 	LOG_FUNCTION_END_FMT(status, "%d %d", (int)pAlsData->lux,  (int)pAlsData->errorStatus);
@@ -531,7 +532,7 @@ int VL6180x_AlsGetMeasurement(VL6180xDev_t dev, VL6180x_AlsData_t *pAlsData)
 }
 
 
-int VL6180x_AlsPollMeasurement(VL6180xDev_t dev, VL6180x_AlsData_t *pAlsData)
+int VL6180x_AlsPollMeasurement(i2c_master_dev_handle_t* handle, VL6180x_AlsData_t *pAlsData)
 {
 	int status;
 	int ClrStatus;
@@ -540,22 +541,22 @@ int VL6180x_AlsPollMeasurement(VL6180xDev_t dev, VL6180x_AlsData_t *pAlsData)
 	LOG_FUNCTION_START("%p", pAlsData);
 	#if VL6180X_SAFE_POLLING_ENTER
 	/* if device get stopped with left interrupt uncleared , it is required to clear them now or poll for new condition will never occur*/
-	status = VL6180x_AlsClearInterrupt(dev);
+	status = VL6180x_AlsClearInterrupt(handle);
 	if (status) {
-		VL6180x_ErrLog("VL6180x_AlsClearInterrupt fail");
+		ESP_LOGE(TAG, "VL6180x_AlsClearInterrupt fail");
 		goto over;
 	}
 	#endif
 
-	status = VL6180x_AlsSetSystemMode(dev, MODE_START_STOP | MODE_SINGLESHOT);
+	status = VL6180x_AlsSetSystemMode(handle, MODE_START_STOP | MODE_SINGLESHOT);
 	if (status) {
-		VL6180x_ErrLog("VL6180x_AlsSetSystemMode fail");
+		ESP_LOGE(TAG, "VL6180x_AlsSetSystemMode fail");
 		goto over;
 	}
 
 	/* poll for new sample ready */
 	while (1) {
-		status = VL6180x_AlsGetInterruptStatus(dev, &IntStatus);
+		status = VL6180x_AlsGetInterruptStatus(handle, &IntStatus);
 		if (status) {
 			break;
 		}
@@ -563,16 +564,16 @@ int VL6180x_AlsPollMeasurement(VL6180xDev_t dev, VL6180x_AlsData_t *pAlsData)
 			break; /* break on new data (status is 0)  */
 		}
 
-		VL6180x_PollDelay(dev);
+		VL6180x_PollDelay(handle);
 	};
 
 	if (!status) {
-		status = VL6180x_AlsGetMeasurement(dev, pAlsData);
+		status = VL6180x_AlsGetMeasurement(handle, pAlsData);
 	}
 
-	ClrStatus = VL6180x_AlsClearInterrupt(dev);
+	ClrStatus = VL6180x_AlsClearInterrupt(handle);
 	if (ClrStatus) {
-		VL6180x_ErrLog("VL6180x_AlsClearInterrupt fail");
+		ESP_LOGE(TAG, "VL6180x_AlsClearInterrupt fail");
 		if (!status) {
 		    status = ClrStatus; /* leave previous if already on error */
 		}
@@ -583,20 +584,20 @@ over:
 	return status;
 }
 
-int VL6180x_AlsGetInterruptStatus(VL6180xDev_t dev, uint8_t *pIntStatus)
+int VL6180x_AlsGetInterruptStatus(i2c_master_dev_handle_t* handle, uint8_t *pIntStatus)
 {
 	int status;
 	uint8_t IntStatus;
 	LOG_FUNCTION_START("%p", pIntStatus);
 
-	status = VL6180x_RdByte(dev, RESULT_INTERRUPT_STATUS_GPIO, &IntStatus);
+	status = VL6180x_RdByte(handle, RESULT_INTERRUPT_STATUS_GPIO, &IntStatus);
 	*pIntStatus = (IntStatus >> 3) & 0x07;
 
 	LOG_FUNCTION_END_FMT(status, "%d", (int)*pIntStatus);
 	return status;
 }
 
-int VL6180x_AlsWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
+int VL6180x_AlsWaitDeviceReady(i2c_master_dev_handle_t* handle, int MaxLoop)
 {
 	int status = API_ERROR;
 	int  n;
@@ -606,7 +607,7 @@ int VL6180x_AlsWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
 		status = INVALID_PARAMS;
 	} else {
 		for (n = 0; n < MaxLoop; n++) {
-			status = VL6180x_RdByte(dev, RESULT_ALS_STATUS, &u8);
+			status = VL6180x_RdByte(handle, RESULT_ALS_STATUS, &u8);
 			if (status)
 				break;
 			u8 = u8 & ALS_DEVICE_READY_MASK;
@@ -622,14 +623,14 @@ int VL6180x_AlsWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
 	return status;
 }
 
-int VL6180x_AlsSetSystemMode(VL6180xDev_t dev, uint8_t mode)
+int VL6180x_AlsSetSystemMode(i2c_master_dev_handle_t* handle, uint8_t mode)
 {
 	int status;
 	LOG_FUNCTION_START("%d", (int)mode);
 	/* FIXME if we are called back to back real fast we are not checking
 	 * if previous mode "set" got absorbed => bit 0 must be 0 so that wr 1 work */
 	if (mode <= 3) {
-		status = VL6180x_WrByte(dev, SYSALS_START, mode);
+		status = VL6180x_WrByte(handle, SYSALS_START, mode);
 	} else {
 		status = INVALID_PARAMS;
 	}
@@ -637,14 +638,14 @@ int VL6180x_AlsSetSystemMode(VL6180xDev_t dev, uint8_t mode)
 	return status;
 }
 
-int VL6180x_AlsConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt)
+int VL6180x_AlsConfigInterrupt(i2c_master_dev_handle_t* handle, uint8_t ConfigGpioInt)
 {
 	int status;
 
 	if (ConfigGpioInt <= CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY) {
-		status = VL6180x_UpdateByte(dev, SYSTEM_INTERRUPT_CONFIG_GPIO, (uint8_t)(~CONFIG_GPIO_ALS_MASK), (ConfigGpioInt << 3));
+		status = VL6180x_UpdateByte(handle, SYSTEM_INTERRUPT_CONFIG_GPIO, (uint8_t)(~CONFIG_GPIO_ALS_MASK), (ConfigGpioInt << 3));
 	} else {
-		VL6180x_ErrLog("Invalid config mode param %d", (int)ConfigGpioInt);
+		ESP_LOGE(TAG, "Invalid config mode param %d", (int)ConfigGpioInt);
 		status = INVALID_PARAMS;
 	}
 	LOG_FUNCTION_END(status);
@@ -653,15 +654,15 @@ int VL6180x_AlsConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt)
 
 
 
-int VL6180x_AlsSetThresholds(VL6180xDev_t dev, uint8_t low, uint8_t high)
+int VL6180x_AlsSetThresholds(i2c_master_dev_handle_t* handle, uint8_t low, uint8_t high)
 {
 	int status;
 
 	LOG_FUNCTION_START("%d %d", (int)low, (int)high);
 
-	status = VL6180x_WrByte(dev, SYSALS_THRESH_LOW, low);
+	status = VL6180x_WrByte(handle, SYSALS_THRESH_LOW, low);
 	if (!status) {
-		status = VL6180x_WrByte(dev, SYSALS_THRESH_HIGH, high);
+		status = VL6180x_WrByte(handle, SYSALS_THRESH_HIGH, high);
 	}
 
 	LOG_FUNCTION_END(status) ;
@@ -669,7 +670,7 @@ int VL6180x_AlsSetThresholds(VL6180xDev_t dev, uint8_t low, uint8_t high)
 }
 
 
-int VL6180x_AlsSetAnalogueGain(VL6180xDev_t dev, uint8_t gain)
+int VL6180x_AlsSetAnalogueGain(i2c_master_dev_handle_t* handle, uint8_t gain)
 {
 	int status;
 	uint8_t GainTotal;
@@ -681,16 +682,16 @@ int VL6180x_AlsSetAnalogueGain(VL6180xDev_t dev, uint8_t gain)
 	}
 	GainTotal = gain | 0x40;
 
-	status = VL6180x_WrByte(dev, SYSALS_ANALOGUE_GAIN, GainTotal);
+	status = VL6180x_WrByte(handle, SYSALS_ANALOGUE_GAIN, GainTotal);
 	if (!status) {
-		VL6180xDevDataSet(dev, AlsGainCode, gain);
+		VL6180xDevDataSet(AlsGainCode, gain);
 	}
 
 	LOG_FUNCTION_END_FMT(status, "%d %d", (int)gain, (int)GainTotal);
 	return status;
 }
 
-int VL6180x_AlsSetInterMeasurementPeriod(VL6180xDev_t dev,  uint16_t intermeasurement_period_ms)
+int VL6180x_AlsSetInterMeasurementPeriod(i2c_master_dev_handle_t* handle,  uint16_t intermeasurement_period_ms)
 {
 	int status;
 
@@ -698,14 +699,14 @@ int VL6180x_AlsSetInterMeasurementPeriod(VL6180xDev_t dev,  uint16_t intermeasur
 	/* clipping: range is 0-2550ms */
 	if (intermeasurement_period_ms >= 255 * 10)
 		intermeasurement_period_ms = 255 * 10;
-	status = VL6180x_WrByte(dev, SYSALS_INTERMEASUREMENT_PERIOD, (uint8_t)(intermeasurement_period_ms / 10));
+	status = VL6180x_WrByte(handle, SYSALS_INTERMEASUREMENT_PERIOD, (uint8_t)(intermeasurement_period_ms / 10));
 
 	LOG_FUNCTION_END_FMT(status, "%d", (int)intermeasurement_period_ms);
 	return status;
 }
 
 
-int VL6180x_AlsSetIntegrationPeriod(VL6180xDev_t dev, uint16_t period_ms)
+int VL6180x_AlsSetIntegrationPeriod(i2c_master_dev_handle_t* handle, uint16_t period_ms)
 {
 	int status;
 	uint16_t SetIntegrationPeriod;
@@ -723,9 +724,9 @@ int VL6180x_AlsSetIntegrationPeriod(VL6180xDev_t dev, uint16_t period_ms)
 		SetIntegrationPeriod++; /* can't write 255 since this causes the device to lock out.*/
 	}
 
-	status = VL6180x_WrWord(dev, SYSALS_INTEGRATION_PERIOD, SetIntegrationPeriod);
+	status = VL6180x_WrWord(handle, SYSALS_INTEGRATION_PERIOD, SetIntegrationPeriod);
 	if (!status) {
-		VL6180xDevDataSet(dev, IntegrationPeriod, SetIntegrationPeriod) ;
+		VL6180xDevDataSet(IntegrationPeriod, SetIntegrationPeriod) ;
 	}
 	LOG_FUNCTION_END_FMT(status, "%d", (int)SetIntegrationPeriod);
 	return status;
@@ -734,7 +735,7 @@ int VL6180x_AlsSetIntegrationPeriod(VL6180xDev_t dev, uint16_t period_ms)
 #endif /* HAVE_ALS_SUPPORT */
 
 
-int VL6180x_RangePollMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
+int VL6180x_RangePollMeasurement(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData)
 {
 	int status;
 	int ClrStatus;
@@ -746,23 +747,21 @@ int VL6180x_RangePollMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeDa
 
 	#if VL6180X_SAFE_POLLING_ENTER
 	/* if device get stopped with left interrupt uncleared , it is required to clear them now or poll for new condition will never occur*/
-	status = VL6180x_RangeClearInterrupt(dev);
+	status = VL6180x_RangeClearInterrupt(handle);
 	if (status) {
-		VL6180x_ErrLog("VL6180x_RangeClearInterrupt fail");
+		ESP_LOGE(TAG, "VL6180x_RangeClearInterrupt fail");
 		goto done;
 	}
 	#endif
 	/* //![single_shot_snipet] */
-	status = VL6180x_RangeSetSystemMode(dev, MODE_START_STOP | MODE_SINGLESHOT);
+	status = VL6180x_RangeSetSystemMode(handle, MODE_START_STOP | MODE_SINGLESHOT);
 	if (status) {
-		VL6180x_ErrLog("VL6180x_RangeSetSystemMode fail");
+		ESP_LOGE(TAG, "VL6180x_RangeSetSystemMode fail");
 		goto done;
-	}
-
-
+	} 
 	/* poll for new sample ready */
 	while (1) {
-		status = VL6180x_RangeGetInterruptStatus(dev, &IntStatus.val);
+		status = VL6180x_RangeGetInterruptStatus(handle, &(IntStatus.val));
 		if (status) {
 			break;
 		}
@@ -770,18 +769,18 @@ int VL6180x_RangePollMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeDa
 			break;
 		}
 
-		VL6180x_PollDelay(dev);
+		VL6180x_PollDelay();
 	}
 	/* //![single_shot_snipet] */
 
 	if (!status) {
-		status = VL6180x_RangeGetMeasurement(dev, pRangeData);
+		status = VL6180x_RangeGetMeasurement(handle, pRangeData);
 	}
 
 	/*  clear range interrupt source */
-	ClrStatus = VL6180x_RangeClearInterrupt(dev);
+	ClrStatus = VL6180x_RangeClearInterrupt(handle);
 	if (ClrStatus) {
-		VL6180x_ErrLog("VL6180x_RangeClearInterrupt fail");
+		ESP_LOGE(TAG, "VL6180x_RangeClearInterrupt fail");
 		/*  leave initial status if already in error  */
 		if (!status) {
 			status = ClrStatus;
@@ -795,14 +794,14 @@ done:
 
 #if VL6180x_CACHED_REG
 
-int VL6180x_GetCachedDWord(VL6180xDev_t dev, uint16_t  index, uint32_t *pValue)
+int VL6180x_GetCachedDWord(i2c_master_dev_handle_t* handle, uint16_t  index, uint32_t *pValue)
 {
 	int status;
 	uint32_t Value;
-	if (VL6180xDevDataGet(dev, CacheFilled) != 0 &&
+	if (VL6180xDevDataGet(CacheFilled) != 0 &&
 		index >= VL6180x_FIRST_CACHED_INDEX  &&
 		index <= (VL6180x_LAST_CACHED_INDEX - 3)) {
-		uint8_t *pBytes = &VL6180xDevDataGet(dev, CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
+		uint8_t *pBytes = &VL6180xDevDataGet(CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
 		Value = ((uint32_t)pBytes[0] << 24) |
 				((uint32_t)pBytes[1] << 16) |
 				((uint32_t)pBytes[2] << 8) |
@@ -810,108 +809,107 @@ int VL6180x_GetCachedDWord(VL6180xDev_t dev, uint16_t  index, uint32_t *pValue)
 		*pValue = Value;
 		status = 0;
 	} else {
-		status =  VL6180x_RdDWord(dev, index, pValue);
+		status =  VL6180x_RdDWord(handle, index, pValue);
 	}
 	return status;
 }
 
-int VL6180x_GetCachedWord(VL6180xDev_t dev, uint16_t  index, uint16_t *pValue)
+int VL6180x_GetCachedWord(i2c_master_dev_handle_t* handle, uint16_t  index, uint16_t *pValue)
 {
 	int status;
 	uint32_t Value;
-	if (VL6180xDevDataGet(dev, CacheFilled) != 0 &&
+	if (VL6180xDevDataGet(CacheFilled) != 0 &&
 		index >= VL6180x_FIRST_CACHED_INDEX  &&
 		index <= (VL6180x_LAST_CACHED_INDEX - 1)) {
-		uint8_t *pBytes = &VL6180xDevDataGet(dev, CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
+		uint8_t *pBytes = &VL6180xDevDataGet(CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
 		Value = ((uint32_t)pBytes[0] << 8) | (uint32_t)pBytes[1];
 		*pValue = Value;
 		status = 0;
 	} else {
-		status =  VL6180x_RdWord(dev, index, pValue);
+		status =  VL6180x_RdWord(handle, index, pValue);
 	}
 	return status;
 }
 
-int VL6180x_GetCachedByte(VL6180xDev_t dev, uint16_t  index, uint8_t *pValue)
+int VL6180x_GetCachedByte(i2c_master_dev_handle_t* handle, uint16_t  index, uint8_t *pValue)
 {
 	int status;
 	uint8_t Value;
-	if (VL6180xDevDataGet(dev, CacheFilled) != 0 &&
+	if (VL6180xDevDataGet(CacheFilled) != 0 &&
 		index >= VL6180x_FIRST_CACHED_INDEX &&
 		index <= VL6180x_LAST_CACHED_INDEX) {
-		Value = VL6180xDevDataGet(dev, CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
+		Value = VL6180xDevDataGet(CachedRegs[index - VL6180x_FIRST_CACHED_INDEX]);
 		*pValue = Value;
 		status = 0;
 	} else {
-		status =  VL6180x_RdByte(dev, index, pValue);
+		status =  VL6180x_RdByte(handle, index, pValue);
 	}
 	return status;
 }
 
 
-int _CachedRegs_Fetch(VL6180xDev_t dev)
+int _CachedRegs_Fetch(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	uint8_t *Buffer;
-	if (VL6180xDevDataGet(dev, CacheFilled) == 0) {
-		VL6180xDevDataSet(dev, CacheFilled, 1);
-		Buffer = &VL6180xDevDataGet(dev, CachedRegs[0]);
-		status = VL6180x_RdMulti(dev, VL6180x_FIRST_CACHED_INDEX, Buffer, VL6180x_CACHED_REG_CNT);
+	if (VL6180xDevDataGet(CacheFilled) == 0) {
+		VL6180xDevDataSet(CacheFilled, 1);
+		Buffer = &VL6180xDevDataGet(CachedRegs[0]);
+		status = VL6180x_RdMulti(handle, VL6180x_FIRST_CACHED_INDEX, Buffer, VL6180x_CACHED_REG_CNT);
 	} else {
 		status = 0 ;
 	}
 	return status;
 }
 
-void _CachedRegs_Flush(VL6180xDev_t dev)
+void _CachedRegs_Flush(i2c_master_dev_handle_t* handle)
 {
-	VL6180xDevDataSet(dev, CacheFilled, 0);
+	VL6180xDevDataSet(CacheFilled, 0);
 }
 
 #else
 #   define _CachedRegs_Fetch(...) 0
 #   define _CachedRegs_Flush(...) (void)0
 #   define _Fetch_CachedRegs(...) 0
-#   define VL6180x_GetCachedByte(dev, index, pValue) VL6180x_RdByte(dev, index, pValue)
-#   define VL6180x_GetCachedWord(dev, index, pValue) VL6180x_RdWord(dev, index, pValue)
-#   define VL6180x_GetCachedDWord(dev, index, pValue) VL6180x_RdDWord(dev, index, pValue)
+#   define VL6180x_GetCachedByte(handle, index, pValue) VL6180x_RdByte(handle, index, pValue)
+#   define VL6180x_GetCachedWord(handle, index, pValue) VL6180x_RdWord(handle, index, pValue)
+#   define VL6180x_GetCachedDWord(handle, index, pValue) VL6180x_RdDWord(handle, index, pValue)
 #endif /* VL6180x_CACHED_REG */
 
 
 
-int VL6180x_RangeGetMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
+int VL6180x_RangeGetMeasurement(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData)
 {
 	int status;
 	uint16_t RawRate;
 	uint8_t RawStatus;
 
-	LOG_FUNCTION_START("");
-
-	status = _CachedRegs_Fetch(dev);
+	// ESP_LOGI(TAG, "VL6180x_RangeGetMeasurement");
+	status = _CachedRegs_Fetch(handle);
 	if (status) {
-		VL6180x_ErrLog("Cache register read fail");
+		ESP_LOGE(TAG, "Cache register read fail");
 		goto error;
 	}
-	status = VL6180x_RangeGetResult(dev, &pRangeData->range_mm);
+	status = VL6180x_RangeGetResult(handle, &pRangeData->range_mm);
 	if (!status) {
-		status = VL6180x_GetCachedWord(dev, RESULT_RANGE_SIGNAL_RATE, &RawRate);
+		status = VL6180x_GetCachedWord(handle, RESULT_RANGE_SIGNAL_RATE, &RawRate);
 		if (!status) {
 			pRangeData->signalRate_mcps = VL6180x_9to7Conv(RawRate);
-			status = VL6180x_GetCachedByte(dev, RESULT_RANGE_STATUS, &RawStatus);
+			status = VL6180x_GetCachedByte(handle, RESULT_RANGE_STATUS, &RawStatus);
 			if (!status) {
 				pRangeData->errorStatus = RawStatus >> 4;
 			} else {
-				VL6180x_ErrLog("Rd RESULT_RANGE_STATUS fail");
+				ESP_LOGE(TAG, "Rd RESULT_RANGE_STATUS fail");
 			}
 	#if VL6180x_WRAP_AROUND_FILTER_SUPPORT || VL6180x_HAVE_DMAX_RANGING
-			status = _GetRateResult(dev, pRangeData);
+			status = _GetRateResult(handle, pRangeData);
 			if (status)
 				goto error;
 	#endif
 	#if VL6180x_WRAP_AROUND_FILTER_SUPPORT
 			/* if enabled run filter */
-			if (_IsWrapArroundActive(dev)) {
-				status = _filter_GetResult(dev, pRangeData);
+			if (_IsWrapArroundActive()) {
+				status = _filter_GetResult(handle, pRangeData);
 				if (!status) {
 					/* patch the range status and measure if it is filtered */
 					if(pRangeData->FilteredData.filterError != NoError) {
@@ -923,57 +921,56 @@ int VL6180x_RangeGetMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeDat
 	#endif
 
 	#if VL6180x_HAVE_DMAX_RANGING
-			if (_IsDMaxActive(dev)) {
-				_DMax_Compute(dev, pRangeData);
+			if (_IsDMaxActive()) {
+				_DMax_Compute(handle, pRangeData);
 			}
 	#endif
 		} else {
-		    VL6180x_ErrLog("Rd RESULT_RANGE_SIGNAL_RATE fail");
+		    ESP_LOGE(TAG, "Rd RESULT_RANGE_SIGNAL_RATE fail");
 		}
 	} else {
-		VL6180x_ErrLog("VL6180x_GetRangeResult fail");
+		ESP_LOGE(TAG, "VL6180x_GetRangeResult fail");
 	}
 error:
-	_CachedRegs_Flush(dev);
-	LOG_FUNCTION_END_FMT(status, "%d %d %d", (int)pRangeData->range_mm, (int)pRangeData->signalRate_mcps,  (int)pRangeData->errorStatus) ;
+	_CachedRegs_Flush(handle);
 	return status;
 }
 
 
-int VL6180x_RangeGetMeasurementIfReady(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
+int VL6180x_RangeGetMeasurementIfReady(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData)
 {
 	int status;
 	IntrStatus_t IntStatus;
 
 	LOG_FUNCTION_START();
-	status = VL6180x_RangeGetInterruptStatus(dev, &IntStatus.val);
+	status = VL6180x_RangeGetInterruptStatus(handle, &IntStatus.val);
 	if (status == 0) {
 		if (IntStatus.status.Range == RES_INT_STAT_GPIO_NEW_SAMPLE_READY ||
 			IntStatus.status.Error != 0) {
-			status = VL6180x_RangeGetMeasurement(dev, pRangeData);
+			status = VL6180x_RangeGetMeasurement(handle, pRangeData);
 			if (status == 0) {
 				/*  clear range interrupt source */
-				status = VL6180x_RangeClearInterrupt(dev);
+				status = VL6180x_RangeClearInterrupt(handle);
 				if (status) {
-					VL6180x_ErrLog("VL6180x_RangeClearInterrupt fail");
+					ESP_LOGE(TAG, "VL6180x_RangeClearInterrupt fail");
 				}
 			}
 		} else {
 			pRangeData->errorStatus = DataNotReady;
 		}
 	} else {
-		VL6180x_ErrLog("fail to get interrupt status");
+		ESP_LOGE(TAG, "fail to get interrupt status");
 	}
 	LOG_FUNCTION_END(status) ;
 	return status;
 }
 
-int VL6180x_FilterSetState(VL6180xDev_t dev, int state)
+int VL6180x_FilterSetState(i2c_master_dev_handle_t* handle, int state)
 {
 	int status;
 	LOG_FUNCTION_START("%d", state);
 	#if VL6180x_WRAP_AROUND_FILTER_SUPPORT
-	VL6180xDevDataSet(dev, WrapAroundFilterActive, state);
+	VL6180xDevDataSet(WrapAroundFilterActive, state);
 	status = 0;
 	#else
 	status =  NOT_SUPPORTED;
@@ -982,12 +979,12 @@ int VL6180x_FilterSetState(VL6180xDev_t dev, int state)
 	return status;
 }
 
-int VL6180x_FilterGetState(VL6180xDev_t dev)
+int VL6180x_FilterGetState(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
 	#if VL6180x_WRAP_AROUND_FILTER_SUPPORT
-	status = VL6180xDevDataGet(dev, WrapAroundFilterActive);
+	status = VL6180xDevDataGet(WrapAroundFilterActive);
 	#else
 	status = 0;
 	#endif
@@ -995,7 +992,7 @@ int VL6180x_FilterGetState(VL6180xDev_t dev)
 	return status;
 }
 
-int VL6180x_RangeGetResult(VL6180xDev_t dev, int32_t *pRange_mm)
+int VL6180x_RangeGetResult(i2c_master_dev_handle_t* handle, int32_t *pRange_mm)
 {
 	int status;
 	uint8_t RawRange;
@@ -1003,52 +1000,52 @@ int VL6180x_RangeGetResult(VL6180xDev_t dev, int32_t *pRange_mm)
 
 	LOG_FUNCTION_START("%p", pRange_mm);
 
-	status = VL6180x_GetCachedByte(dev, RESULT_RANGE_VAL, &RawRange);
+	status = VL6180x_GetCachedByte(handle, RESULT_RANGE_VAL, &RawRange);
 	if (!status) {
-		Upscale = _GetUpscale(dev);
+		Upscale = _GetUpscale(handle);
 		*pRange_mm = Upscale * (int32_t)RawRange;
 	}
 	LOG_FUNCTION_END_FMT(status, "%d", (int)*pRange_mm);
 	return status;
 }
 
-int VL6180x_RangeSetRawThresholds(VL6180xDev_t dev, uint8_t low, uint8_t high)
+int VL6180x_RangeSetRawThresholds(i2c_master_dev_handle_t* handle, uint8_t low, uint8_t high)
 {
 	int status;
 	LOG_FUNCTION_START("%d %d", (int) low, (int)high);
 	/* TODO we can optimize here grouping high/low in a word but that's cpu endianness dependent */
-	status = VL6180x_WrByte(dev, SYSRANGE_THRESH_HIGH, high);
+	status = VL6180x_WrByte(handle, SYSRANGE_THRESH_HIGH, high);
 	if (!status) {
-		status = VL6180x_WrByte(dev, SYSRANGE_THRESH_LOW, low);
+		status = VL6180x_WrByte(handle, SYSRANGE_THRESH_LOW, low);
 	}
 
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_RangeSetThresholds(VL6180xDev_t dev, uint16_t low, uint16_t high, int UseSafeParamHold)
+int VL6180x_RangeSetThresholds(i2c_master_dev_handle_t* handle, uint16_t low, uint16_t high, int UseSafeParamHold)
 {
 	int status;
 	int scale;
 	LOG_FUNCTION_START("%d %d", (int) low, (int)high);
-	scale = _GetUpscale(dev, UpscaleFactor);
+	scale = _GetUpscale(handle, UpscaleFactor);
 	if (low > scale * 255 || high > scale * 255) {
 		status = INVALID_PARAMS;
 	} else {
 		do {
 			if (UseSafeParamHold) {
-				status = VL6180x_SetGroupParamHold(dev, 1);
+				status = VL6180x_SetGroupParamHold(handle, 1);
 				if (status)
 					break;
 		    }
-		    status = VL6180x_RangeSetRawThresholds(dev, (uint8_t)(low / scale), (uint8_t)(high / scale));
+		    status = VL6180x_RangeSetRawThresholds(handle, (uint8_t)(low / scale), (uint8_t)(high / scale));
 		    if (status) {
-				VL6180x_ErrLog("VL6180x_RangeSetRawThresholds fail");
+				ESP_LOGE(TAG, "VL6180x_RangeSetRawThresholds fail");
 		    }
 		    if (UseSafeParamHold) {
 				int HoldStatus;
 				/* tryt to unset param hold vene if previous fail */
-				HoldStatus = VL6180x_SetGroupParamHold(dev, 0);
+				HoldStatus = VL6180x_SetGroupParamHold(handle, 0);
 				if (!status)
 					status = HoldStatus;
 		    }
@@ -1060,7 +1057,7 @@ int VL6180x_RangeSetThresholds(VL6180xDev_t dev, uint16_t low, uint16_t high, in
 }
 
 
-int VL6180x_RangeGetThresholds(VL6180xDev_t dev, uint16_t *low, uint16_t *high)
+int VL6180x_RangeGetThresholds(i2c_master_dev_handle_t* handle, uint16_t *low, uint16_t *high)
 {
 	int status = 0;
 	uint8_t RawLow, RawHigh;
@@ -1068,20 +1065,20 @@ int VL6180x_RangeGetThresholds(VL6180xDev_t dev, uint16_t *low, uint16_t *high)
 
 	LOG_FUNCTION_START("%p %p", low , high);
 
-	scale = _GetUpscale(dev, UpscaleFactor);
+	scale = _GetUpscale(handle, UpscaleFactor);
 	do {
 		if (high != NULL) {
-			status = VL6180x_RdByte(dev, SYSRANGE_THRESH_HIGH, &RawHigh);
+			status = VL6180x_RdByte(handle, SYSRANGE_THRESH_HIGH, &RawHigh);
 			if (status) {
-				VL6180x_ErrLog("rd SYSRANGE_THRESH_HIGH fail");
+				ESP_LOGE(TAG, "rd SYSRANGE_THRESH_HIGH fail");
 				break;
 			}
 			*high = (uint16_t)RawHigh * scale;
 		}
 		if (low != NULL) {
-		    status = VL6180x_RdByte(dev, SYSRANGE_THRESH_LOW, &RawLow);
+		    status = VL6180x_RdByte(handle, SYSRANGE_THRESH_LOW, &RawLow);
 			if (status) {
-				VL6180x_ErrLog("rd SYSRANGE_THRESH_LOW fail");
+				ESP_LOGE(TAG, "rd SYSRANGE_THRESH_LOW fail");
 				break;
 		    }
 		    *low = (uint16_t)RawLow * scale;
@@ -1092,36 +1089,36 @@ int VL6180x_RangeGetThresholds(VL6180xDev_t dev, uint16_t *low, uint16_t *high)
 }
 
 
-int VL6180x_RangeGetInterruptStatus(VL6180xDev_t dev, uint8_t *pIntStatus)
+int VL6180x_RangeGetInterruptStatus(i2c_master_dev_handle_t* handle, uint8_t *pIntStatus)
 {
 	int status;
 	uint8_t IntStatus;
-	LOG_FUNCTION_START("%p", pIntStatus);
 	/* FIXME we are grouping "error" with over status the user must check implicitly for it
 	 * not just new sample or over status , that will nevr show up in case of error*/
-	status = VL6180x_GetCachedByte(dev, RESULT_INTERRUPT_STATUS_GPIO, &IntStatus);
+	
+	status = VL6180x_RdByte(handle, RESULT_INTERRUPT_STATUS_GPIO, &IntStatus);
+	
 	*pIntStatus = IntStatus & 0xC7;
 
-	LOG_FUNCTION_END_FMT(status, "%d", (int)*pIntStatus);
 	return status;
 }
 
 
-int VL6180x_GetInterruptStatus(VL6180xDev_t dev, uint8_t *IntStatus)
+int VL6180x_GetInterruptStatus(i2c_master_dev_handle_t* handle, uint8_t *IntStatus)
 {
 	int status;
 	LOG_FUNCTION_START("%p" , IntStatus);
-	status = VL6180x_RdByte(dev, RESULT_INTERRUPT_STATUS_GPIO, IntStatus);
+	status = VL6180x_RdByte(handle, RESULT_INTERRUPT_STATUS_GPIO, IntStatus);
 	LOG_FUNCTION_END_FMT(status, "%d", (int)*IntStatus);
 	return status;
 }
 
-int VL6180x_ClearInterrupt(VL6180xDev_t dev, uint8_t IntClear)
+int VL6180x_ClearInterrupt(i2c_master_dev_handle_t* handle, uint8_t IntClear)
 {
 	int status;
 	LOG_FUNCTION_START("%d", (int)IntClear);
 	if (IntClear <= 7) {
-		status = VL6180x_WrByte(dev, SYSTEM_INTERRUPT_CLEAR, IntClear);
+		status = VL6180x_WrByte(handle, SYSTEM_INTERRUPT_CLEAR, IntClear);
 	} else {
 		status = INVALID_PARAMS;
 	}
@@ -1130,58 +1127,58 @@ int VL6180x_ClearInterrupt(VL6180xDev_t dev, uint8_t IntClear)
 }
 
 
-static int VL6180x_RangeStaticInit(VL6180xDev_t dev)
+static int VL6180x_RangeStaticInit(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
 
 	/* REGISTER_TUNING_SR03_270514_CustomerView.txt */
-	VL6180x_WrByte(dev, 0x0207, 0x01);
-	VL6180x_WrByte(dev, 0x0208, 0x01);
-	VL6180x_WrByte(dev, 0x0096, 0x00);
-	VL6180x_WrByte(dev, 0x0097, 0xfd);
-	VL6180x_WrByte(dev, 0x00e3, 0x01);
-	VL6180x_WrByte(dev, 0x00e4, 0x03);
-	VL6180x_WrByte(dev, 0x00e5, 0x02);
-	VL6180x_WrByte(dev, 0x00e6, 0x01);
-	VL6180x_WrByte(dev, 0x00e7, 0x03);
-	VL6180x_WrByte(dev, 0x00f5, 0x02);
-	VL6180x_WrByte(dev, 0x00d9, 0x05);
-	VL6180x_WrByte(dev, 0x00db, 0xce);
-	VL6180x_WrByte(dev, 0x00dc, 0x03);
-	VL6180x_WrByte(dev, 0x00dd, 0xf8);
-	VL6180x_WrByte(dev, 0x009f, 0x00);
-	VL6180x_WrByte(dev, 0x00a3, 0x3c);
-	VL6180x_WrByte(dev, 0x00b7, 0x00);
-	VL6180x_WrByte(dev, 0x00bb, 0x3c); /*Recommended value = 0x28 in case very fast ranging frequency (~ 100 Hz)*/
-	VL6180x_WrByte(dev, 0x00b2, 0x09);
-	VL6180x_WrByte(dev, 0x00ca, 0x09);
-	VL6180x_WrByte(dev, 0x0198, 0x01);
-	VL6180x_WrByte(dev, 0x01b0, 0x17);
-	VL6180x_WrByte(dev, 0x01ad, 0x00);
-	VL6180x_WrByte(dev, 0x00ff, 0x05);
-	VL6180x_WrByte(dev, 0x0100, 0x05);
-	VL6180x_WrByte(dev, 0x0199, 0x05);
-	VL6180x_WrByte(dev, 0x01a6, 0x1b);
-	VL6180x_WrByte(dev, 0x01ac, 0x3e);
-	VL6180x_WrByte(dev, 0x01a7, 0x1f);
-	VL6180x_WrByte(dev, 0x0030, 0x00);
+	VL6180x_WrByte(handle, 0x0207, 0x01);
+	VL6180x_WrByte(handle, 0x0208, 0x01);
+	VL6180x_WrByte(handle, 0x0096, 0x00);
+	VL6180x_WrByte(handle, 0x0097, 0xfd);
+	VL6180x_WrByte(handle, 0x00e3, 0x01);
+	VL6180x_WrByte(handle, 0x00e4, 0x03);
+	VL6180x_WrByte(handle, 0x00e5, 0x02);
+	VL6180x_WrByte(handle, 0x00e6, 0x01);
+	VL6180x_WrByte(handle, 0x00e7, 0x03);
+	VL6180x_WrByte(handle, 0x00f5, 0x02);
+	VL6180x_WrByte(handle, 0x00d9, 0x05);
+	VL6180x_WrByte(handle, 0x00db, 0xce);
+	VL6180x_WrByte(handle, 0x00dc, 0x03);
+	VL6180x_WrByte(handle, 0x00dd, 0xf8);
+	VL6180x_WrByte(handle, 0x009f, 0x00);
+	VL6180x_WrByte(handle, 0x00a3, 0x3c);
+	VL6180x_WrByte(handle, 0x00b7, 0x00);
+	VL6180x_WrByte(handle, 0x00bb, 0x3c); /*Recommended value = 0x28 in case very fast ranging frequency (~ 100 Hz)*/
+	VL6180x_WrByte(handle, 0x00b2, 0x09);
+	VL6180x_WrByte(handle, 0x00ca, 0x09);
+	VL6180x_WrByte(handle, 0x0198, 0x01);
+	VL6180x_WrByte(handle, 0x01b0, 0x17);
+	VL6180x_WrByte(handle, 0x01ad, 0x00);
+	VL6180x_WrByte(handle, 0x00ff, 0x05);
+	VL6180x_WrByte(handle, 0x0100, 0x05);
+	VL6180x_WrByte(handle, 0x0199, 0x05);
+	VL6180x_WrByte(handle, 0x01a6, 0x1b);
+	VL6180x_WrByte(handle, 0x01ac, 0x3e);
+	VL6180x_WrByte(handle, 0x01a7, 0x1f);
+	VL6180x_WrByte(handle, 0x0030, 0x00);
 
 	/* Recommended : Public registers - See data sheet for more detail */
-	VL6180x_WrByte(dev, 0x0011, 0x10); /* Enables polling for New Sample ready when measurement completes */
-	VL6180x_WrByte(dev, 0x010a, 0x30); /* Set the averaging sample period (compromise between lower noise and increased execution time) */
-	VL6180x_WrByte(dev, 0x003f, 0x46); /* Sets the light and dark gain (upper nibble). Dark gain should not be changed.*/
-	VL6180x_WrByte(dev, 0x0031, 0xFF); /* sets the # of range measurements after which auto calibration of system is performed */
-	VL6180x_WrByte(dev, 0x0040, 0x63); /* Set ALS integration time to 100ms */
-	VL6180x_WrByte(dev, 0x002e, 0x01); /* perform a single temperature calibration of the ranging sensor */
+	VL6180x_WrByte(handle, 0x0011, 0x10); /* Enables polling for New Sample ready when measurement completes */
+	VL6180x_WrByte(handle, 0x010a, 0x30); /* Set the averaging sample period (compromise between lower noise and increased execution time) */
+	VL6180x_WrByte(handle, 0x003f, 0x46); /* Sets the light and dark gain (upper nibble). Dark gain should not be changed.*/
+	VL6180x_WrByte(handle, 0x0031, 0xFF); /* sets the # of range measurements after which auto calibration of system is performed */
+	VL6180x_WrByte(handle, 0x0040, 0x63); /* Set ALS integration time to 100ms */
+	VL6180x_WrByte(handle, 0x002e, 0x01); /* perform a single temperature calibration of the ranging sensor */
 
 	/* Optional: Public registers - See data sheet for more detail */
-	VL6180x_WrByte(dev, 0x001b, 0x09); /* Set default ranging inter-measurement period to 100ms */
-	VL6180x_WrByte(dev, 0x003e, 0x31); /* Set default ALS inter-measurement period to 500ms */
-	VL6180x_WrByte(dev, 0x0014, 0x24); /* Configures interrupt on New sample ready */
+	VL6180x_WrByte(handle, 0x001b, 0x09); /* Set default ranging inter-measurement period to 100ms */
+	VL6180x_WrByte(handle, 0x003e, 0x31); /* Set default ALS inter-measurement period to 500ms */
+	VL6180x_WrByte(handle, 0x0014, 0x24); /* Configures interrupt on New sample ready */
 
 
-	status = VL6180x_RangeSetMaxConvergenceTime(dev, 50); /*  Calculate ece value on initialization (use max conv) */
+	status = VL6180x_RangeSetMaxConvergenceTime(handle, 50); /*  Calculate ece value on initialization (use max conv) */
 	LOG_FUNCTION_END(status);
 
 	return status;
@@ -1189,63 +1186,63 @@ static int VL6180x_RangeStaticInit(VL6180xDev_t dev)
 
 #if VL6180x_UPSCALE_SUPPORT != 1
 
-static int _UpscaleInitPatch0(VL6180xDev_t dev)
+static int _UpscaleInitPatch0(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	uint32_t CalValue = 0;
-	CalValue = VL6180xDevDataGet(dev, Part2PartAmbNVM);
-	status = VL6180x_WrDWord(dev, 0xDA, CalValue);
+	CalValue = VL6180xDevDataGet(Part2PartAmbNVM);
+	status = VL6180x_WrDWord(handle, 0xDA, CalValue);
 	return status;
 }
 
 /* only include up-scaling register setting when up-scale support is configured in */
-int VL6180x_UpscaleRegInit(VL6180xDev_t dev)
+int VL6180x_UpscaleRegInit(i2c_master_dev_handle_t* handle)
 {
 	/*  apply REGISTER_TUNING_ER02_100614_CustomerView.txt */
-	VL6180x_WrByte(dev, 0x0207, 0x01);
-	VL6180x_WrByte(dev, 0x0208, 0x01);
-	VL6180x_WrByte(dev, 0x0096, 0x00);
-	VL6180x_WrByte(dev, 0x0097, 0x54);
-	VL6180x_WrByte(dev, 0x00e3, 0x01);
-	VL6180x_WrByte(dev, 0x00e4, 0x03);
-	VL6180x_WrByte(dev, 0x00e5, 0x02);
-	VL6180x_WrByte(dev, 0x00e6, 0x01);
-	VL6180x_WrByte(dev, 0x00e7, 0x03);
-	VL6180x_WrByte(dev, 0x00f5, 0x02);
-	VL6180x_WrByte(dev, 0x00d9, 0x05);
+	VL6180x_WrByte(handle, 0x0207, 0x01);
+	VL6180x_WrByte(handle, 0x0208, 0x01);
+	VL6180x_WrByte(handle, 0x0096, 0x00);
+	VL6180x_WrByte(handle, 0x0097, 0x54);
+	VL6180x_WrByte(handle, 0x00e3, 0x01);
+	VL6180x_WrByte(handle, 0x00e4, 0x03);
+	VL6180x_WrByte(handle, 0x00e5, 0x02);
+	VL6180x_WrByte(handle, 0x00e6, 0x01);
+	VL6180x_WrByte(handle, 0x00e7, 0x03);
+	VL6180x_WrByte(handle, 0x00f5, 0x02);
+	VL6180x_WrByte(handle, 0x00d9, 0x05);
 
-	_UpscaleInitPatch0(dev);
+	_UpscaleInitPatch0(handle);
 
-	VL6180x_WrByte(dev, 0x009f, 0x00);
-	VL6180x_WrByte(dev, 0x00a3, 0x28);
-	VL6180x_WrByte(dev, 0x00b7, 0x00);
-	VL6180x_WrByte(dev, 0x00bb, 0x28);
-	VL6180x_WrByte(dev, 0x00b2, 0x09);
-	VL6180x_WrByte(dev, 0x00ca, 0x09);
-	VL6180x_WrByte(dev, 0x0198, 0x01);
-	VL6180x_WrByte(dev, 0x01b0, 0x17);
-	VL6180x_WrByte(dev, 0x01ad, 0x00);
-	VL6180x_WrByte(dev, 0x00ff, 0x05);
-	VL6180x_WrByte(dev, 0x0100, 0x05);
-	VL6180x_WrByte(dev, 0x0199, 0x05);
-	VL6180x_WrByte(dev, 0x01a6, 0x1b);
-	VL6180x_WrByte(dev, 0x01ac, 0x3e);
-	VL6180x_WrByte(dev, 0x01a7, 0x1f);
-	VL6180x_WrByte(dev, 0x0030, 0x00);
-	VL6180x_WrByte(dev, 0x0011, 0x10);
-	VL6180x_WrByte(dev, 0x010a, 0x30);
-	VL6180x_WrByte(dev, 0x003f, 0x46);
-	VL6180x_WrByte(dev, 0x0031, 0xFF);
-	VL6180x_WrByte(dev, 0x0040, 0x63);
-	VL6180x_WrByte(dev, 0x002e, 0x01);
-	VL6180x_WrByte(dev, 0x002c, 0xff);
-	VL6180x_WrByte(dev, 0x001b, 0x09);
-	VL6180x_WrByte(dev, 0x003e, 0x31);
-	VL6180x_WrByte(dev, 0x0014, 0x24);
+	VL6180x_WrByte(handle, 0x009f, 0x00);
+	VL6180x_WrByte(handle, 0x00a3, 0x28);
+	VL6180x_WrByte(handle, 0x00b7, 0x00);
+	VL6180x_WrByte(handle, 0x00bb, 0x28);
+	VL6180x_WrByte(handle, 0x00b2, 0x09);
+	VL6180x_WrByte(handle, 0x00ca, 0x09);
+	VL6180x_WrByte(handle, 0x0198, 0x01);
+	VL6180x_WrByte(handle, 0x01b0, 0x17);
+	VL6180x_WrByte(handle, 0x01ad, 0x00);
+	VL6180x_WrByte(handle, 0x00ff, 0x05);
+	VL6180x_WrByte(handle, 0x0100, 0x05);
+	VL6180x_WrByte(handle, 0x0199, 0x05);
+	VL6180x_WrByte(handle, 0x01a6, 0x1b);
+	VL6180x_WrByte(handle, 0x01ac, 0x3e);
+	VL6180x_WrByte(handle, 0x01a7, 0x1f);
+	VL6180x_WrByte(handle, 0x0030, 0x00);
+	VL6180x_WrByte(handle, 0x0011, 0x10);
+	VL6180x_WrByte(handle, 0x010a, 0x30);
+	VL6180x_WrByte(handle, 0x003f, 0x46);
+	VL6180x_WrByte(handle, 0x0031, 0xFF);
+	VL6180x_WrByte(handle, 0x0040, 0x63);
+	VL6180x_WrByte(handle, 0x002e, 0x01);
+	VL6180x_WrByte(handle, 0x002c, 0xff);
+	VL6180x_WrByte(handle, 0x001b, 0x09);
+	VL6180x_WrByte(handle, 0x003e, 0x31);
+	VL6180x_WrByte(handle, 0x0014, 0x24);
 #if VL6180x_EXTENDED_RANGE
-	VL6180x_RangeSetMaxConvergenceTime(dev, 63);
+	VL6180x_RangeSetMaxConvergenceTime(handle, 63);
 #else
-	VL6180x_RangeSetMaxConvergenceTime(dev, 50);
+	VL6180x_RangeSetMaxConvergenceTime(handle, 50);
 #endif
 	return 0;
 }
@@ -1253,7 +1250,7 @@ int VL6180x_UpscaleRegInit(VL6180xDev_t dev)
 #define VL6180x_UpscaleRegInit(...) -1
 #endif
 
-int VL6180x_UpscaleSetScaling(VL6180xDev_t dev, uint8_t scaling)
+int VL6180x_UpscaleSetScaling(i2c_master_dev_handle_t* handle, uint8_t scaling)
 {
 	int status;
 	uint16_t Scaler;
@@ -1274,34 +1271,34 @@ int VL6180x_UpscaleSetScaling(VL6180xDev_t dev, uint8_t scaling)
 	if (scaling >= min_scaling  && scaling <= max_scaling) {
 
 		Scaler = ScalerLookUP[scaling - 1];
-		status = VL6180x_WrWord(dev, RANGE_SCALER, Scaler);
-		_SetUpscale(dev, scaling);
+		status = VL6180x_WrWord(handle, RANGE_SCALER, Scaler);
+		_SetUpscale(scaling);
 
 		/* Apply scaling on  part-2-part offset */
-		Offset = VL6180xDevDataGet(dev, Part2PartOffsetNVM) / scaling;
-		status = VL6180x_WrByte(dev, SYSRANGE_PART_TO_PART_RANGE_OFFSET, Offset);
+		Offset = VL6180xDevDataGet(Part2PartOffsetNVM) / scaling;
+		status = VL6180x_WrByte(handle, SYSRANGE_PART_TO_PART_RANGE_OFFSET, Offset);
 
 		/* Apply scaling on CrossTalkValidHeight */
 		if (status == 0) {
-			status = VL6180x_WrByte(dev, SYSRANGE_CROSSTALK_VALID_HEIGHT,
+			status = VL6180x_WrByte(handle, SYSRANGE_CROSSTALK_VALID_HEIGHT,
 									DEF_CROSS_TALK_VALID_HEIGHT_VALUE /  scaling);
 		}
 		/* Apply scaling on RangeIgnore ValidHeight if enabled */
 		if( status == 0){
-			if(  VL6180xDevDataGet(dev, RangeIgnore.Enabled) !=0 ){
-				ValidHeight = VL6180xDevDataGet(dev, RangeIgnore.ValidHeight);
-				ValidHeight  /= _GetUpscale(dev);
+			if(  VL6180xDevDataGet(RangeIgnore.Enabled) !=0 ){
+				ValidHeight = VL6180xDevDataGet(RangeIgnore.ValidHeight);
+				ValidHeight  /= _GetUpscale(handle);
 				if( ValidHeight > 255 )
 					ValidHeight = 255;
 
-				status = VL6180x_WrByte(dev, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT,
+				status = VL6180x_WrByte(handle, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT,
 							ValidHeight );
 			}
 		}
 
 #if !VL6180x_EXTENDED_RANGE
 		if (status == 0) {
-			status = VL6180x_RangeSetEceState(dev, scaling == 1); /* enable ece only at 1x scaling */
+			status = VL6180x_RangeSetEceState(handle, scaling == 1); /* enable ece only at 1x scaling */
 		}
 		if (status == 0 && !VL6180x_EXTENDED_RANGE && scaling != 1) {
 			status = NOT_GUARANTEED ;
@@ -1317,48 +1314,48 @@ int VL6180x_UpscaleSetScaling(VL6180xDev_t dev, uint8_t scaling)
 }
 
 
-int VL6180x_UpscaleGetScaling(VL6180xDev_t dev)
+int VL6180x_UpscaleGetScaling(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
-	status = _GetUpscale(dev);
+	status = _GetUpscale(handle);
 	LOG_FUNCTION_END(status);
 
 	return status;
 }
 
 
-static int  VL6180x_UpscaleStaticInit(VL6180xDev_t dev)
+static int  VL6180x_UpscaleStaticInit(i2c_master_dev_handle_t* handle)
 {
 	/* todo make these a fail macro in case only 1x is suppoted */
 	int status;
 
 	LOG_FUNCTION_START("");
 	do {
-		status = VL6180x_UpscaleRegInit(dev);
+		status = VL6180x_UpscaleRegInit(handle);
 		if (status) {
-			VL6180x_ErrLog("regInit fail");
+			ESP_LOGE(TAG, "regInit fail");
 			break;
 		}
 #if VL6180x_EXTENDED_RANGE
-		status = VL6180x_RangeSetEceState(dev, 0);
+		status = VL6180x_RangeSetEceState(handle, 0);
 		if (status) {
-			VL6180x_ErrLog("VL6180x_RangeSetEceState fail");
+			ESP_LOGE(TAG, "VL6180x_RangeSetEceState fail");
 			break;
 		}
 #endif
 	} while (0);
 	if (!status) {
 		/*  must write the scaler at least once to the device to ensure the scaler is in a known state. */
-		status = VL6180x_UpscaleSetScaling(dev, _GetUpscale(dev));
-		VL6180x_WrByte(dev, 0x016, 0x00); /* change fresh out of set status to 0 */
+		status = VL6180x_UpscaleSetScaling(handle, _GetUpscale(handle));
+		VL6180x_WrByte(handle, 0x016, 0x00); /* change fresh out of set status to 0 */
 	}
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
 
-int VL6180x_SetGPIOxPolarity(VL6180xDev_t dev, int pin, int active_high)
+int VL6180x_SetGPIOxPolarity(i2c_master_dev_handle_t* handle, int pin, int active_high)
 {
 	int status;
 	LOG_FUNCTION_START("%d %d", (int) pin, (int)active_high);
@@ -1376,9 +1373,9 @@ int VL6180x_SetGPIOxPolarity(VL6180xDev_t dev, int pin, int active_high)
 		else
 		   DataSet = 0;
 
-		status = VL6180x_UpdateByte(dev, RegIndex, (uint8_t)~GPIOx_POLARITY_SELECT_MASK, DataSet);
+		status = VL6180x_UpdateByte(handle, RegIndex, (uint8_t)~GPIOx_POLARITY_SELECT_MASK, DataSet);
 	} else {
-		VL6180x_ErrLog("Invalid pin param %d", (int)pin);
+		ESP_LOGE(TAG, "Invalid pin param %d", (int)pin);
 		status = INVALID_PARAMS;
 	}
 
@@ -1387,7 +1384,7 @@ int VL6180x_SetGPIOxPolarity(VL6180xDev_t dev, int pin, int active_high)
 	return status;
 }
 
-int VL6180x_SetGPIOxFunctionality(VL6180xDev_t dev, int pin, uint8_t functionality)
+int VL6180x_SetGPIOxFunctionality(i2c_master_dev_handle_t* handle, int pin, uint8_t functionality)
 {
 	int status;
 
@@ -1401,13 +1398,13 @@ int VL6180x_SetGPIOxFunctionality(VL6180xDev_t dev, int pin, uint8_t functionali
 		else
 			RegIndex = SYSTEM_MODE_GPIO1;
 
-		status = VL6180x_UpdateByte(dev, RegIndex, (uint8_t)~GPIOx_FUNCTIONALITY_SELECT_MASK,
+		status = VL6180x_UpdateByte(handle, RegIndex, (uint8_t)~GPIOx_FUNCTIONALITY_SELECT_MASK,
 									functionality << GPIOx_FUNCTIONALITY_SELECT_SHIFT);
 		if (status) {
-			VL6180x_ErrLog("Update SYSTEM_MODE_GPIO%d fail", (int)pin);
+			ESP_LOGE(TAG, "Update SYSTEM_MODE_GPIO%d fail", (int)pin);
 		}
 	} else {
-		VL6180x_ErrLog("Invalid pin %d  or function %d", (int)pin, (int)functionality);
+		ESP_LOGE(TAG, "Invalid pin %d  or function %d", (int)pin, (int)functionality);
 		status = INVALID_PARAMS;
 	}
 
@@ -1416,7 +1413,7 @@ int VL6180x_SetGPIOxFunctionality(VL6180xDev_t dev, int pin, uint8_t functionali
 }
 
 
-int VL6180x_SetupGPIOx(VL6180xDev_t dev, int pin,  uint8_t IntFunction, int  ActiveHigh)
+int VL6180x_SetupGPIOx(i2c_master_dev_handle_t* handle, int pin,  uint8_t IntFunction, int  ActiveHigh)
 {
 	int status;
 
@@ -1435,12 +1432,12 @@ int VL6180x_SetupGPIOx(VL6180xDev_t dev, int pin,  uint8_t IntFunction, int  Act
 		   value |= GPIOx_POLARITY_SELECT_MASK;
 
 		value |=  IntFunction << GPIOx_FUNCTIONALITY_SELECT_SHIFT;
-		status = VL6180x_WrByte(dev, RegIndex, value);
+		status = VL6180x_WrByte(handle, RegIndex, value);
 		if (status) {
-		   VL6180x_ErrLog("SYSTEM_MODE_GPIO%d wr fail", (int)pin-SYSTEM_MODE_GPIO0);
+		   ESP_LOGE(TAG, "SYSTEM_MODE_GPIO%d wr fail", (int)pin-SYSTEM_MODE_GPIO0);
 		}
 	} else {
-		VL6180x_ErrLog("Invalid pin %d or function %d", (int)pin, (int) IntFunction);
+		ESP_LOGE(TAG, "Invalid pin %d or function %d", (int)pin, (int) IntFunction);
 		status = INVALID_PARAMS;
 	}
 
@@ -1449,38 +1446,38 @@ int VL6180x_SetupGPIOx(VL6180xDev_t dev, int pin,  uint8_t IntFunction, int  Act
 }
 
 
-int VL6180x_DisableGPIOxOut(VL6180xDev_t dev, int pin)
+int VL6180x_DisableGPIOxOut(i2c_master_dev_handle_t* handle, int pin)
 {
 	int status;
 
 	LOG_FUNCTION_START("%d", (int)pin);
 
-	status = VL6180x_SetGPIOxFunctionality(dev, pin, GPIOx_SELECT_OFF);
+	status = VL6180x_SetGPIOxFunctionality(handle, pin, GPIOx_SELECT_OFF);
 
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
 
-int VL6180x_SetupGPIO1(VL6180xDev_t dev, uint8_t IntFunction, int ActiveHigh)
+int VL6180x_SetupGPIO1(i2c_master_dev_handle_t* handle, uint8_t IntFunction, int ActiveHigh)
 {
 	int status;
 	LOG_FUNCTION_START("%d %d", (int)IntFunction, (int)ActiveHigh);
-	status = VL6180x_SetupGPIOx(dev, 1, IntFunction, ActiveHigh);
+	status = VL6180x_SetupGPIOx(handle, 1, IntFunction, ActiveHigh);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_RangeConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt)
+int VL6180x_RangeConfigInterrupt(i2c_master_dev_handle_t* handle, uint8_t ConfigGpioInt)
 {
 	int status;
 
 	if (ConfigGpioInt <= CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY) {
-		status = VL6180x_UpdateByte(dev, SYSTEM_INTERRUPT_CONFIG_GPIO,
+		status = VL6180x_UpdateByte(handle, SYSTEM_INTERRUPT_CONFIG_GPIO,
 									(uint8_t)(~CONFIG_GPIO_RANGE_MASK),
 									ConfigGpioInt);
 	} else {
-		VL6180x_ErrLog("Invalid config mode param %d", (int)ConfigGpioInt);
+		ESP_LOGE(TAG, "Invalid config mode param %d", (int)ConfigGpioInt);
 		status = INVALID_PARAMS;
 	}
 	LOG_FUNCTION_END(status);
@@ -1488,7 +1485,7 @@ int VL6180x_RangeConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt)
 }
 
 
-int VL6180x_RangeSetEceFactor(VL6180xDev_t dev, uint16_t  FactorM, uint16_t FactorD)
+int VL6180x_RangeSetEceFactor(i2c_master_dev_handle_t* handle, uint16_t  FactorM, uint16_t FactorD)
 {
 	int status;
 	uint8_t u8;
@@ -1497,21 +1494,21 @@ int VL6180x_RangeSetEceFactor(VL6180xDev_t dev, uint16_t  FactorM, uint16_t Fact
 	do {
 		/* D cannot be 0 M must be <=D and >= 0 */
 		if (FactorM <= FactorD  && FactorD > 0) {
-			VL6180xDevDataSet(dev, EceFactorM, FactorM);
-			VL6180xDevDataSet(dev, EceFactorD, FactorD);
+			VL6180xDevDataSet(EceFactorM, FactorM);
+			VL6180xDevDataSet(EceFactorD, FactorD);
 			/* read and re-apply max conv time to get new ece factor set */
-			status = VL6180x_RdByte(dev, SYSRANGE_MAX_CONVERGENCE_TIME, &u8);
+			status = VL6180x_RdByte(handle, SYSRANGE_MAX_CONVERGENCE_TIME, &u8);
 			if (status) {
-			   VL6180x_ErrLog("SYSRANGE_MAX_CONVERGENCE_TIME rd fail ");
+			   ESP_LOGE(TAG, "SYSRANGE_MAX_CONVERGENCE_TIME rd fail ");
 			   break;
 			}
-			status = VL6180x_RangeSetMaxConvergenceTime(dev, u8);
+			status = VL6180x_RangeSetMaxConvergenceTime(handle, u8);
 			if (status < 0) {
-				VL6180x_ErrLog("fail to apply time after ece m/d change");
+				ESP_LOGE(TAG, "fail to apply time after ece m/d change");
 				break;
 			}
 		} else {
-			VL6180x_ErrLog("invalid factor %d/%d", (int)FactorM, (int)FactorD);
+			ESP_LOGE(TAG, "invalid factor %d/%d", (int)FactorM, (int)FactorD);
 			status = INVALID_PARAMS;
 		}
 	} while (0);
@@ -1519,7 +1516,7 @@ int VL6180x_RangeSetEceFactor(VL6180xDev_t dev, uint16_t  FactorM, uint16_t Fact
 	return status;
 }
 
-int VL6180x_RangeSetEceState(VL6180xDev_t dev, int enable)
+int VL6180x_RangeSetEceState(i2c_master_dev_handle_t* handle, int enable)
 {
 	int status;
 	uint8_t or_mask;
@@ -1530,32 +1527,32 @@ int VL6180x_RangeSetEceState(VL6180xDev_t dev, int enable)
 	else
 		or_mask = 0;
 
-	status = VL6180x_UpdateByte(dev, SYSRANGE_RANGE_CHECK_ENABLES, ~RANGE_CHECK_ECE_ENABLE_MASK, or_mask);
+	status = VL6180x_UpdateByte(handle, SYSRANGE_RANGE_CHECK_ENABLES, ~RANGE_CHECK_ECE_ENABLE_MASK, or_mask);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
 
-int VL6180x_RangeSetMaxConvergenceTime(VL6180xDev_t dev, uint8_t  MaxConTime_msec)
+int VL6180x_RangeSetMaxConvergenceTime(i2c_master_dev_handle_t* handle, uint8_t  MaxConTime_msec)
 {
 	int status = 0;
 	LOG_FUNCTION_START("%d", (int)MaxConTime_msec);
 	do {
-		status = VL6180x_WrByte(dev, SYSRANGE_MAX_CONVERGENCE_TIME, MaxConTime_msec);
+		status = VL6180x_WrByte(handle, SYSRANGE_MAX_CONVERGENCE_TIME, MaxConTime_msec);
 		if (status) {
 			break;
 		}
-		status = VL6180x_RangeSetEarlyConvergenceEestimateThreshold(dev);
+		status = VL6180x_RangeSetEarlyConvergenceEestimateThreshold(handle);
 		if (status) {
 			break;
 		}
-		status = _DMax_InitData(dev);
+		status = _DMax_InitData(handle);
 	} while (0);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_RangeSetInterMeasPeriod(VL6180xDev_t dev, uint32_t  InterMeasTime_msec)
+int VL6180x_RangeSetInterMeasPeriod(i2c_master_dev_handle_t* handle, uint32_t  InterMeasTime_msec)
 {
 	uint8_t SetTime;
 	int status;
@@ -1572,9 +1569,9 @@ int VL6180x_RangeSetInterMeasPeriod(VL6180xDev_t dev, uint32_t  InterMeasTime_ms
 			InterMeasTime_msec = 10;
 		}
 		SetTime = (uint8_t)(InterMeasTime_msec / 10);
-		status = VL6180x_WrByte(dev, SYSRANGE_INTERMEASUREMENT_PERIOD, SetTime);
+		status = VL6180x_WrByte(handle, SYSRANGE_INTERMEASUREMENT_PERIOD, SetTime);
 		if (status) {
-			VL6180x_ErrLog("SYSRANGE_INTERMEASUREMENT_PERIOD wr fail");
+			ESP_LOGE(TAG, "SYSRANGE_INTERMEASUREMENT_PERIOD wr fail");
 		} else if (SetTime != InterMeasTime_msec / 10) {
 			status = MIN_CLIPED;  /* on success change status to clip if it did */
 		}
@@ -1584,12 +1581,12 @@ int VL6180x_RangeSetInterMeasPeriod(VL6180xDev_t dev, uint32_t  InterMeasTime_ms
 }
 
 
-int VL6180x_RangeGetDeviceReady(VL6180xDev_t dev, int *Ready)
+int VL6180x_RangeGetDeviceReady(i2c_master_dev_handle_t* handle, int *Ready)
 {
 	int status;
 	uint8_t u8;
 	LOG_FUNCTION_START("%p", Ready);
-	status = VL6180x_RdByte(dev, RESULT_RANGE_STATUS, &u8);
+	status = VL6180x_RdByte(handle, RESULT_RANGE_STATUS, &u8);
 	if (!status)
 		*Ready = u8&RANGE_DEVICE_READY_MASK;
 	LOG_FUNCTION_END_FMT(status, "%d", *Ready);
@@ -1597,7 +1594,7 @@ int VL6180x_RangeGetDeviceReady(VL6180xDev_t dev, int *Ready)
 }
 
 
-int VL6180x_RangeWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
+int VL6180x_RangeWaitDeviceReady(i2c_master_dev_handle_t* handle, int MaxLoop)
 {
 	int status = 0; /* if user specify an invalid <=0 loop count we'll return error */
 	int  n;
@@ -1607,7 +1604,7 @@ int VL6180x_RangeWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
 		status = INVALID_PARAMS;
 	} else {
 		for (n = 0; n < MaxLoop ; n++) {
-			status = VL6180x_RdByte(dev, RESULT_RANGE_STATUS, &u8);
+			status = VL6180x_RdByte(handle, RESULT_RANGE_STATUS, &u8);
 			if (status)
 				break;
 			u8 = u8 & RANGE_DEVICE_READY_MASK;
@@ -1623,54 +1620,52 @@ int VL6180x_RangeWaitDeviceReady(VL6180xDev_t dev, int MaxLoop)
 	return status;
 }
 
-int VL6180x_RangeSetSystemMode(VL6180xDev_t dev, uint8_t  mode)
+int VL6180x_RangeSetSystemMode(i2c_master_dev_handle_t* handle, uint8_t  mode)
 {
 	int status;
-	LOG_FUNCTION_START("%d", (int)mode);
 	/* FIXME we are not checking device is ready via @a VL6180x_RangeWaitDeviceReady
 	 * so if called back to back real fast we are not checking
 	 * if previous mode "set" got absorbed => bit 0 must be 0 so that it work
 	 */
 	if (mode <= 3) {
-		status = VL6180x_WrByte(dev, SYSRANGE_START, mode);
+		status = VL6180x_WrByte(handle, SYSRANGE_START, mode);
 		if (status) {
-		    VL6180x_ErrLog("SYSRANGE_START wr fail");
+		    ESP_LOGE(TAG, "SYSRANGE_START wr fail");
 		}
 	} else {
 		status = INVALID_PARAMS;
 	}
-	LOG_FUNCTION_END(status);
 	return status;
 }
 
 
-int VL6180x_RangeStartContinuousMode(VL6180xDev_t dev)
+int VL6180x_RangeStartContinuousMode(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
-	status = VL6180x_RangeSetSystemMode(dev, MODE_START_STOP | MODE_CONTINUOUS);
+	status = VL6180x_RangeSetSystemMode(handle, MODE_START_STOP | MODE_CONTINUOUS);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_RangeStartSingleShot(VL6180xDev_t dev)
+int VL6180x_RangeStartSingleShot(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
-	status = VL6180x_RangeSetSystemMode(dev, MODE_START_STOP | MODE_SINGLESHOT);
+	status = VL6180x_RangeSetSystemMode(handle, MODE_START_STOP | MODE_SINGLESHOT);
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
 
-static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(VL6180xDev_t dev)
+static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(i2c_master_dev_handle_t* handle)
 {
 	int status;
 
 	const uint32_t cMicroSecPerMilliSec  = 1000;
 	const uint32_t cEceSampleTime_us     = 500;
-	uint32_t ece_factor_m          = VL6180xDevDataGet(dev, EceFactorM);
-	uint32_t ece_factor_d          = VL6180xDevDataGet(dev, EceFactorD);
+	uint32_t ece_factor_m          = VL6180xDevDataGet(EceFactorM);
+	uint32_t ece_factor_d          = VL6180xDevDataGet(EceFactorD);
 	uint32_t convergTime_us;
 	uint32_t fineThresh;
 	uint32_t eceThresh;
@@ -1681,28 +1676,28 @@ static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(VL6180xDev_t dev)
 	LOG_FUNCTION_START("");
 
 	do {
-		status = VL6180x_RdByte(dev, SYSRANGE_MAX_CONVERGENCE_TIME, &u8);
+		status = VL6180x_RdByte(handle, SYSRANGE_MAX_CONVERGENCE_TIME, &u8);
 		if (status) {
-			VL6180x_ErrLog("SYSRANGE_MAX_CONVERGENCE_TIME rd fail");
+			ESP_LOGE(TAG, "SYSRANGE_MAX_CONVERGENCE_TIME rd fail");
 			break;
 		}
 		maxConv_ms = u8;
-		AveTime = _GetAveTotalTime(dev);
+		AveTime = _GetAveTotalTime(handle);
 		if (AveTime < 0) {
 			status = -1;
 			break;
 		}
 
 		convergTime_us = maxConv_ms * cMicroSecPerMilliSec - AveTime;
-		status = VL6180x_RdDWord(dev, 0xB8, &fineThresh);
+		status = VL6180x_RdDWord(handle, 0xB8, &fineThresh);
 		if (status) {
-			VL6180x_ErrLog("reg 0xB8 rd fail");
+			ESP_LOGE(TAG, "reg 0xB8 rd fail");
 			break;
 		}
 		fineThresh *= 256;
 		eceThresh = ece_factor_m * cEceSampleTime_us * fineThresh / (convergTime_us * ece_factor_d);
 
-		status = VL6180x_WrWord(dev, SYSRANGE_EARLY_CONVERGENCE_ESTIMATE, (uint16_t)eceThresh);
+		status = VL6180x_WrWord(handle, SYSRANGE_EARLY_CONVERGENCE_ESTIMATE, (uint16_t)eceThresh);
 	} while (0);
 
 	LOG_FUNCTION_END(status);
@@ -1710,27 +1705,27 @@ static int VL6180x_RangeSetEarlyConvergenceEestimateThreshold(VL6180xDev_t dev)
 }
 
 
-static int _RangeIgnore_UpdateDevice(VL6180xDev_t dev){
+static int _RangeIgnore_UpdateDevice(i2c_master_dev_handle_t* handle){
 	int status;
 	int enable;
 	int threshold;
 	int range;
 	int or_mask;
-	enable= VL6180xDevDataGet(dev, RangeIgnore.Enabled);
+	enable= VL6180xDevDataGet(RangeIgnore.Enabled);
 	if( enable ){
 		// if to be nabled program first range value and threshold
-		range = VL6180xDevDataGet(dev, RangeIgnore.ValidHeight);
-		range /= _GetUpscale(dev);
+		range = VL6180xDevDataGet(RangeIgnore.ValidHeight);
+		range /= _GetUpscale(handle);
 		if( range > 255 )
 			range = 255;
 
-		status = VL6180x_WrByte(dev, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT,  range);
+		status = VL6180x_WrByte(handle, SYSRANGE_RANGE_IGNORE_VALID_HEIGHT,  range);
 		if( status ){
 			goto done;
 		}
 
-		threshold = VL6180xDevDataGet(dev, RangeIgnore.IgnoreThreshold);
-		status = VL6180x_WrWord(dev, SYSRANGE_RANGE_IGNORE_THRESHOLD,  threshold);
+		threshold = VL6180xDevDataGet(RangeIgnore.IgnoreThreshold);
+		status = VL6180x_WrWord(handle, SYSRANGE_RANGE_IGNORE_THRESHOLD,  threshold);
 		if( status ){
 			goto done;
 		}
@@ -1739,13 +1734,13 @@ static int _RangeIgnore_UpdateDevice(VL6180xDev_t dev){
 	else{
 		or_mask = 0;
 	}
-	status = VL6180x_UpdateByte(dev, SYSRANGE_RANGE_CHECK_ENABLES, ~RANGE_CHECK_RANGE_ENABLE_MASK, or_mask);
-	_DMax_InitData(dev);
+	status = VL6180x_UpdateByte(handle, SYSRANGE_RANGE_CHECK_ENABLES, ~RANGE_CHECK_RANGE_ENABLE_MASK, or_mask);
+	_DMax_InitData(handle);
 done:
 	return status;
 }
 
-int VL6180x_RangeIgnoreSetEnable(VL6180xDev_t dev, int EnableState){
+int VL6180x_RangeIgnoreSetEnable(i2c_master_dev_handle_t* handle, int EnableState){
 	int CurEnable;
 	int status = API_ERROR;
 	LOG_FUNCTION_START("enable %d", EnableState);
@@ -1753,26 +1748,26 @@ int VL6180x_RangeIgnoreSetEnable(VL6180xDev_t dev, int EnableState){
 	if( EnableState )
 		EnableState = 1;
 
-	CurEnable = VL6180xDevDataGet(dev, RangeIgnore.Enabled);
+	CurEnable = VL6180xDevDataGet(RangeIgnore.Enabled);
 	if( EnableState != CurEnable  ){
-		VL6180xDevDataSet(dev, RangeIgnore.Enabled, EnableState);
-		status = _RangeIgnore_UpdateDevice(dev);
+		VL6180xDevDataSet(RangeIgnore.Enabled, EnableState);
+		status = _RangeIgnore_UpdateDevice(handle);
 	}
 	LOG_FUNCTION_END(status);
 	return status;
 }
 
-int VL6180x_RangeIgnoreConfigure(VL6180xDev_t dev, uint16_t ValidHeight_mm, uint16_t IgnoreThreshold){
+int VL6180x_RangeIgnoreConfigure(i2c_master_dev_handle_t* handle, uint16_t ValidHeight_mm, uint16_t IgnoreThreshold){
 	int status;
 	int enabled;
 
 	LOG_FUNCTION_START("height= %d Threshold=%d", (int)ValidHeight_mm, (int)IgnoreThreshold);
 
-	enabled = VL6180xDevDataGet(dev, RangeIgnore.Enabled);
-	VL6180xDevDataSet(dev, RangeIgnore.ValidHeight, ValidHeight_mm);
-	VL6180xDevDataSet(dev, RangeIgnore.IgnoreThreshold, IgnoreThreshold);
+	enabled = VL6180xDevDataGet(RangeIgnore.Enabled);
+	VL6180xDevDataSet(RangeIgnore.ValidHeight, ValidHeight_mm);
+	VL6180xDevDataSet(RangeIgnore.IgnoreThreshold, IgnoreThreshold);
 	if(  enabled ){
-		status = _RangeIgnore_UpdateDevice(dev);
+		status = _RangeIgnore_UpdateDevice(handle);
 	}
 	else{
 		status = 0;
@@ -1785,7 +1780,7 @@ int VL6180x_RangeIgnoreConfigure(VL6180xDev_t dev, uint16_t ValidHeight_mm, uint
  * Return >0 = time
  *       <0 1 if fail to get read data from device to compute time
  */
-static int32_t _GetAveTotalTime(VL6180xDev_t dev)
+static int32_t _GetAveTotalTime(i2c_master_dev_handle_t* handle)
 {
 	uint32_t cFwOverhead_us = 24;
 	uint32_t cVcpSetupTime_us = 70;
@@ -1800,15 +1795,15 @@ static int32_t _GetAveTotalTime(VL6180xDev_t dev)
 
 	LOG_FUNCTION_START("");
 
-	status = VL6180x_RdByte(dev, 0x109, &u8);
+	status = VL6180x_RdByte(handle, 0x109, &u8);
 	if (status) {
-		VL6180x_ErrLog("rd 0x109 fail");
+		ESP_LOGE(TAG, "rd 0x109 fail");
 		return -1;
 	}
 	Samples = u8 & cMeasMask;
-	status = VL6180x_RdByte(dev, READOUT_AVERAGING_SAMPLE_PERIOD, &u8);
+	status = VL6180x_RdByte(handle, READOUT_AVERAGING_SAMPLE_PERIOD, &u8);
 	if (status) {
-		VL6180x_ErrLog("i2c READOUT_AVERAGING_SAMPLE_PERIOD fail");
+		ESP_LOGE(TAG, "i2c READOUT_AVERAGING_SAMPLE_PERIOD fail");
 		return -1;
 	}
 	SamplePeriod = u8;
@@ -1820,16 +1815,16 @@ static int32_t _GetAveTotalTime(VL6180xDev_t dev)
 }
 
 #if VL6180x_HAVE_DMAX_RANGING
-#define _GetDMaxDataRetSignalAt400mm(dev) VL6180xDevDataGet(dev, DMaxData.retSignalAt400mm)
+#define _GetDMaxDataRetSignalAt400mm() VL6180xDevDataGet(DMaxData.retSignalAt400mm)
 #else
-#define _GetDMaxDataRetSignalAt400mm(dev) 375 /* Use a default high value */
+#define _GetDMaxDataRetSignalAt400mm() 375 /* Use a default high value */
 #endif
 
 
 #if VL6180x_WRAP_AROUND_FILTER_SUPPORT
 
 #define PRESERVE_DEVICE_ERROR_CODE		/* If uncommented, device error code will be preserved on top of wraparound error code, but this may lead to some error code instability like overflow error <==> RangingFilteringOnGoing error oscillations */
-#define SENSITIVE_FILTERING_ON_GOING	/* If uncommented, filter will go back to RangingFilteringOnGoing if it must go through the std dev testing */
+#define SENSITIVE_FILTERING_ON_GOING	/* If uncommented, filter will go back to RangingFilteringOnGoing if it must go through the std handle testing */
 
 #define FILTER_STDDEV_SAMPLES           6
 #define MIN_FILTER_STDDEV_SAMPLES       3
@@ -1838,11 +1833,11 @@ static int32_t _GetAveTotalTime(VL6180xDev_t dev)
 
 #define FILTER_INVALID_DISTANCE     65535
 
-#define _FilterData(field) VL6180xDevDataGet(dev, FilterData.field)
+#define _FilterData(field) VL6180xDevDataGet(FilterData.field)
 /*
  * One time init
  */
-int _filter_Init(VL6180xDev_t dev)
+int _filter_Init()
 {
 	int i;
 	_FilterData(MeasurementIndex) = 0;
@@ -1900,7 +1895,7 @@ static uint32_t _filter_StdDevDamper(uint32_t AmbientRate,
 /*
  * Return <0 on error
  */
-static int32_t _filter_Start(VL6180xDev_t dev,
+static int32_t _filter_Start(i2c_master_dev_handle_t* handle,
 								uint16_t m_trueRange_mm,
 								uint16_t m_rawRange_mm,
 								uint32_t m_rtnSignalRate,
@@ -2005,7 +2000,7 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 	uint8_t u8;//, u8_2;
 	uint32_t XTalkCompRate_KCps;
 	uint32_t StdDevLimit = 300;
-	uint32_t MaxOrInvalidDistance =   255*_GetUpscale(dev);
+	uint32_t MaxOrInvalidDistance =   255*_GetUpscale(handle);
 	/* #define MaxOrInvalidDistance  (uint16_t) (255 * 3) */
 
 	/* Check if distance is Valid or not */
@@ -2019,7 +2014,7 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 	case Ranging_Algo_Overflow:
 		filterErrorCodeOnRangingErrorCode = RangingFiltered; /* If we have to go through filter, mean we have here a wraparound case */
 		//m_trueRange_mm = MaxOrInvalidDistance;
-		m_trueRange_mm = 200*_GetUpscale(dev);
+		m_trueRange_mm = 200*_GetUpscale(handle);
 		ValidDistance = 1;
 		break;
 	default:
@@ -2033,10 +2028,10 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 	}
 	m_newTrueRange_mm = m_trueRange_mm;
 
-	XTalkCompRate_KCps = VL6180xDevDataGet(dev, XTalkCompRate_KCps);
+	XTalkCompRate_KCps = VL6180xDevDataGet(XTalkCompRate_KCps);
 
 	/* Update signal rate limits depending on crosstalk */
-	SignalRateDMax = (uint32_t)_GetDMaxDataRetSignalAt400mm(dev) ;
+	SignalRateDMax = (uint32_t)_GetDMaxDataRetSignalAt400mm() ;
 	WrapAroundLowReturnRateLimit = WrapAroundLowReturnRateLimit_ROM  + XTalkCompRate_KCps;
 	WrapAroundLowReturnRateLimit2 = ((WrapAroundLowReturnRateLimit2_ROM *
 									SignalRateDMax) / 312) +
@@ -2133,18 +2128,18 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 	}
 
 	/* Check which kind of measurement has been made */
-	status = VL6180x_RdByte(dev, 0x01AC, &u8);
+	status = VL6180x_RdByte(handle, 0x01AC, &u8);
 	if (status) {
-		VL6180x_ErrLog("0x01AC rd fail");
+		ESP_LOGE(TAG, "0x01AC rd fail");
 		goto done_err;
 	}
 	registerValue = u8;
 
 	/* Read data for filtering */
 #if VL6180x_HAVE_MULTI_READ
-	status = VL6180x_RdMulti(dev, 0x10C, MultiReadBuf, 8); /* read only 8 lsb bits */
+	status = VL6180x_RdMulti(handle, 0x10C, MultiReadBuf, 8); /* read only 8 lsb bits */
 	if (status) {
-		VL6180x_ErrLog("0x10C multi rd fail");
+		ESP_LOGE(TAG, "0x10C multi rd fail");
 		goto done_err;
 	}
 	register32BitsValue1 = ((uint32_t) MultiReadBuf[0] << 24)
@@ -2156,14 +2151,14 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 			+ ((uint32_t) MultiReadBuf[6] << 8)
 			+ ((uint32_t) MultiReadBuf[7] << 0);
 #else
-	status = VL6180x_RdDWord(dev, 0x10C, &register32BitsValue1); /* read 32 bits, lower 17 bits are the one useful */
+	status = VL6180x_RdDWord(handle, 0x10C, &register32BitsValue1); /* read 32 bits, lower 17 bits are the one useful */
 	if (status) {
-		VL6180x_ErrLog("0x010C rd fail");
+		ESP_LOGE(TAG, "0x010C rd fail");
 		goto done_err;
 	}
-	status = VL6180x_RdDWord(dev, 0x0110, &	register32BitsValue2); /* read 32 bits, lower 17 bits are the one useful */
+	status = VL6180x_RdDWord(handle, 0x0110, &	register32BitsValue2); /* read 32 bits, lower 17 bits are the one useful */
 	if (status) {
-		VL6180x_ErrLog("0x0110 rd fail");
+		ESP_LOGE(TAG, "0x0110 rd fail");
 		goto done_err;
 	}
 #endif
@@ -2171,14 +2166,14 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 
 	if ((FlushFilter == 1) || ((bypassFilter == 1) && (resetVAVGData == 1))) {
 		if (registerValue != 0x3E) {
-			status = VL6180x_WrByte(dev, 0x1AC, 0x3E);
+			status = VL6180x_WrByte(handle, 0x1AC, 0x3E);
 			if (status) {
-				VL6180x_ErrLog("0x01AC bypass wr fail");
+				ESP_LOGE(TAG, "0x01AC bypass wr fail");
 				goto done_err;
 			}
-			//status = VL6180x_WrByte(dev, 0x0F2, 0x01);
+			//status = VL6180x_WrByte(handle, 0x0F2, 0x01);
 			//if (status) {
-			//	VL6180x_ErrLog("0x0F2 bypass wr fail");
+			//	ESP_LOGE(TAG, "0x0F2 bypass wr fail");
 			//	goto done_err;
 			//}
 		}
@@ -2205,14 +2200,14 @@ static int32_t _filter_Start(VL6180xDev_t dev,
 			u8 = 0x3E;
 			//u8_2 = 0x01;
 		}
-		status = VL6180x_WrByte(dev, 0x01AC, u8);
+		status = VL6180x_WrByte(handle, 0x01AC, u8);
 		if (status) {
-			VL6180x_ErrLog("0x01AC wr fail");
+			ESP_LOGE(TAG, "0x01AC wr fail");
 			goto done_err;
 		}
-		//status = VL6180x_WrByte(dev, 0x0F2, u8_2);
+		//status = VL6180x_WrByte(handle, 0x0F2, u8_2);
 		//if (status) {
-		//	VL6180x_ErrLog("0x0F2  wr fail");
+		//	ESP_LOGE(TAG, "0x0F2  wr fail");
 		//	goto done_err;
 		//}
 		_FilterData(MeasurementIndex)++;
@@ -2406,23 +2401,23 @@ done_err:
 }
 
 
-static int _filter_GetResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
+static int _filter_GetResult(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData)
 {
 	uint32_t m_rawRange_mm = 0;
 	int32_t  FilteredRange;
-	const uint8_t scaler = _GetUpscale(dev);
+	const uint8_t scaler = _GetUpscale(handle);
 	uint8_t u8;
 	int status;
 
 	do {
-		status = VL6180x_GetCachedByte(dev, RESULT_RANGE_RAW, &u8);
+		status = VL6180x_GetCachedByte(handle, RESULT_RANGE_RAW, &u8);
 		if (status) {
-		    VL6180x_ErrLog("RESULT_RANGE_RAW rd fail");
+		    ESP_LOGE(TAG, "RESULT_RANGE_RAW rd fail");
 		    break;
 		}
 		m_rawRange_mm = u8;
 
-		FilteredRange = _filter_Start(dev, pRangeData->range_mm, (m_rawRange_mm * scaler), pRangeData->rtnRate, pRangeData->rtnAmbRate, pRangeData->errorStatus);
+		FilteredRange = _filter_Start(handle, pRangeData->range_mm, (m_rawRange_mm * scaler), pRangeData->rtnRate, pRangeData->rtnAmbRate, pRangeData->errorStatus);
 		if (FilteredRange < 0) {
 		    status = -1;
 		    break;
@@ -2451,7 +2446,7 @@ static int _filter_GetResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
 
 #ifdef VL6180x_HAVE_RATE_DATA
 
-static int _GetRateResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
+static int _GetRateResult(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData)
 {
 	uint32_t m_rtnConvTime = 0;
 	uint32_t m_rtnSignalRate = 0;
@@ -2466,31 +2461,31 @@ static int _GetRateResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
 	int status;
 
 	do {
-		status = VL6180x_GetCachedDWord(dev, RESULT_RANGE_RETURN_SIGNAL_COUNT, &m_rtnSignalCount);
+		status = VL6180x_GetCachedDWord(handle, RESULT_RANGE_RETURN_SIGNAL_COUNT, &m_rtnSignalCount);
 		if (status) {
-			VL6180x_ErrLog("RESULT_RANGE_RETURN_SIGNAL_COUNT rd fail");
+			ESP_LOGE(TAG, "RESULT_RANGE_RETURN_SIGNAL_COUNT rd fail");
 			break;
 		}
 		if (m_rtnSignalCount > cRtnSignalCountMax) {
 			m_rtnSignalCount = 0;
 		}
 
-		status = VL6180x_GetCachedDWord(dev, RESULT_RANGE_RETURN_AMB_COUNT, &m_rtnAmbientCount);
+		status = VL6180x_GetCachedDWord(handle, RESULT_RANGE_RETURN_AMB_COUNT, &m_rtnAmbientCount);
 		if (status) {
-			VL6180x_ErrLog("RESULT_RANGE_RETURN_AMB_COUNTrd fail");
+			ESP_LOGE(TAG, "RESULT_RANGE_RETURN_AMB_COUNTrd fail");
 			break;
 		}
 
 
-		status = VL6180x_GetCachedDWord(dev, RESULT_RANGE_RETURN_CONV_TIME, &m_rtnConvTime);
+		status = VL6180x_GetCachedDWord(handle, RESULT_RANGE_RETURN_CONV_TIME, &m_rtnConvTime);
 		if (status) {
-			VL6180x_ErrLog("RESULT_RANGE_RETURN_CONV_TIME rd fail");
+			ESP_LOGE(TAG, "RESULT_RANGE_RETURN_CONV_TIME rd fail");
 			break;
 		}
 
-		status = VL6180x_GetCachedDWord(dev, RESULT_RANGE_REFERENCE_CONV_TIME, &m_refConvTime);
+		status = VL6180x_GetCachedDWord(handle, RESULT_RANGE_REFERENCE_CONV_TIME, &m_refConvTime);
 		if (status) {
-			VL6180x_ErrLog("RESULT_RANGE_REFERENCE_CONV_TIME rd fail");
+			ESP_LOGE(TAG, "RESULT_RANGE_REFERENCE_CONV_TIME rd fail");
 			break;
 		}
 
@@ -2517,14 +2512,14 @@ static int _GetRateResult(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData)
 #endif /* VL6180x_HAVE_RATE_DATA */
 
 
-int VL6180x_DMaxSetState(VL6180xDev_t dev, int state)
+int VL6180x_DMaxSetState(i2c_master_dev_handle_t* handle, int state)
 {
 	int status;
 	LOG_FUNCTION_START("%d", state);
 #if VL6180x_HAVE_DMAX_RANGING
-	VL6180xDevDataSet(dev, DMaxEnable, state);
+	VL6180xDevDataSet(DMaxEnable, state);
 	if (state) {
-		status = _DMax_InitData(dev);
+		status = _DMax_InitData(handle);
 	} else {
 		status = 0;
 	}
@@ -2535,12 +2530,12 @@ int VL6180x_DMaxSetState(VL6180xDev_t dev, int state)
 	return status;
 }
 
-int VL6180x_DMaxGetState(VL6180xDev_t dev)
+int VL6180x_DMaxGetState(i2c_master_dev_handle_t* handle)
 {
 	int status;
 	LOG_FUNCTION_START("");
 #if VL6180x_HAVE_DMAX_RANGING
-	status = VL6180xDevDataGet(dev, DMaxEnable);
+	status = VL6180xDevDataGet(DMaxEnable);
 #else
 	status = 0;
 #endif
@@ -2551,7 +2546,7 @@ int VL6180x_DMaxGetState(VL6180xDev_t dev)
 
 #if VL6180x_HAVE_DMAX_RANGING
 
-#define _DMaxData(field) VL6180xDevDataGet(dev, DMaxData.field)
+#define _DMaxData(field) VL6180xDevDataGet(DMaxData.field)
 /*
  * Convert fix point  x.7 to KCpount per sec
  */
@@ -2585,13 +2580,13 @@ uint32_t VL6180x_SqrtUint32(uint32_t num)
 
 
 /* DMax one time init */
-void _DMax_OneTimeInit(VL6180xDev_t dev)
+void _DMax_OneTimeInit(i2c_master_dev_handle_t* handle)
 {
 	_DMaxData(ambTuningWindowFactor_K) = DEF_AMBIENT_TUNING;
 }
 
 
-static uint32_t _DMax_RawValueAtRateKCps(VL6180xDev_t dev, int32_t rate)
+static uint32_t _DMax_RawValueAtRateKCps(i2c_master_dev_handle_t* handle, int32_t rate)
 {
 	uint32_t snrLimit_K;
 	int32_t DMaxSq;
@@ -2635,12 +2630,12 @@ static uint32_t _DMax_RawValueAtRateKCps(VL6180xDev_t dev, int32_t rate)
  * to be re-used/call on  changes of :
  *  0x2A
  *  SYSRANGE_MAX_AMBIENT_LEVEL_MULT
- *  Dev Data XtalkComRate_KCPs
+ *  handle Data XtalkComRate_KCPs
  *  SYSRANGE_MAX_CONVERGENCE_TIME
  *  SYSRANGE_RANGE_CHECK_ENABLES    mask RANGE_CHECK_RANGE_ENABLE_MASK
  *  range 0xb8-0xbb (0xbb)
  */
-static int _DMax_InitData(VL6180xDev_t dev)
+static int _DMax_InitData(i2c_master_dev_handle_t* handle)
 {
 	int status, warning;
 	uint8_t u8;
@@ -2660,9 +2655,9 @@ static int _DMax_InitData(VL6180xDev_t dev)
 
 	LOG_FUNCTION_START("");
 	do {
-		status = VL6180x_RdByte(dev, 0x02A, &u8);
+		status = VL6180x_RdByte(handle, 0x02A, &u8);
 		if (status) {
-		    VL6180x_ErrLog("Reg 0x02A rd fail");
+		    ESP_LOGE(TAG, "Reg 0x02A rd fail");
 		    break;
 		}
 
@@ -2672,31 +2667,31 @@ static int _DMax_InitData(VL6180xDev_t dev)
 		}
 		Reg2A_KCps = Fix7_2_KCPs(u8); /* convert to KCPs */
 
-		status = VL6180x_RdByte(dev, SYSRANGE_RANGE_CHECK_ENABLES, &SysRangeCheckEn);
+		status = VL6180x_RdByte(handle, SYSRANGE_RANGE_CHECK_ENABLES, &SysRangeCheckEn);
 		if (status) {
-		    VL6180x_ErrLog("SYSRANGE_RANGE_CHECK_ENABLES rd fail ");
+		    ESP_LOGE(TAG, "SYSRANGE_RANGE_CHECK_ENABLES rd fail ");
 		    break;
 		}
 
-		status = VL6180x_RdByte(dev, SYSRANGE_MAX_CONVERGENCE_TIME, &MaxConvTime);
+		status = VL6180x_RdByte(handle, SYSRANGE_MAX_CONVERGENCE_TIME, &MaxConvTime);
 		if (status) {
-		    VL6180x_ErrLog("SYSRANGE_MAX_CONVERGENCE_TIME rd fail ");
+		    ESP_LOGE(TAG, "SYSRANGE_MAX_CONVERGENCE_TIME rd fail ");
 			break;
 		}
 
-		status = VL6180x_RdDWord(dev, 0x0B8, &RegB8);
+		status = VL6180x_RdDWord(handle, 0x0B8, &RegB8);
 		if (status) {
-		    VL6180x_ErrLog("reg 0x0B8 rd fail ");
+		    ESP_LOGE(TAG, "reg 0x0B8 rd fail ");
 		    break;
 		}
 
-		status = VL6180x_RdByte(dev, SYSRANGE_MAX_AMBIENT_LEVEL_MULT, &snrLimit);
+		status = VL6180x_RdByte(handle, SYSRANGE_MAX_AMBIENT_LEVEL_MULT, &snrLimit);
 		if (status) {
-		    VL6180x_ErrLog("SYSRANGE_MAX_AMBIENT_LEVEL_MULT rd fail ");
+		    ESP_LOGE(TAG, "SYSRANGE_MAX_AMBIENT_LEVEL_MULT rd fail ");
 		    break;
 		}
 		_DMaxData(snrLimit_K) = (int32_t)16 * 1000 / snrLimit;
-		XTalkCompRate_KCps =   VL6180xDevDataGet(dev, XTalkCompRate_KCps);
+		XTalkCompRate_KCps =   VL6180xDevDataGet(XTalkCompRate_KCps);
 
 		if (Reg2A_KCps >= XTalkCompRate_KCps) {
 		    _DMaxData(retSignalAt400mm) = Reg2A_KCps;
@@ -2707,9 +2702,9 @@ static int _DMax_InitData(VL6180xDev_t dev)
 
 		/* if xtalk range check is off omit it in snr clipping */
 		if (SysRangeCheckEn&RANGE_CHECK_RANGE_ENABLE_MASK) {
-		    status = VL6180x_RdWord(dev, SYSRANGE_RANGE_IGNORE_THRESHOLD, &u16);
+		    status = VL6180x_RdWord(handle, SYSRANGE_RANGE_IGNORE_THRESHOLD, &u16);
 		    if (status) {
-				VL6180x_ErrLog("SYSRANGE_RANGE_IGNORE_THRESHOLD rd fail ");
+				ESP_LOGE(TAG, "SYSRANGE_RANGE_IGNORE_THRESHOLD rd fail ");
 				break;
 		    }
 		    RangeIgnoreThreshold = Fix7_2_KCPs(u16);
@@ -2724,7 +2719,7 @@ static int _DMax_InitData(VL6180xDev_t dev)
 		    minSignalNeeded  =  RangeIgnoreThreshold - XTalkCompRate_KCps;
 
 		u32 = (minSignalNeeded*(uint32_t)snrLimit) / 16;
-		_DMaxData(ClipSnrLimit) = _DMax_RawValueAtRateKCps(dev, u32);
+		_DMaxData(ClipSnrLimit) = _DMax_RawValueAtRateKCps(handle, u32);
 		/* clip to dmax to min signal snr limit rate*/
 	} while (0);
 	if (!status)
@@ -2733,7 +2728,7 @@ static int _DMax_InitData(VL6180xDev_t dev)
 	return status;
 }
 
-static int _DMax_Compute(VL6180xDev_t dev, VL6180x_RangeData_t *pRange)
+static int _DMax_Compute(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRange)
 {
 	uint32_t rtnAmbRate;
 	int32_t DMax;
@@ -2743,8 +2738,8 @@ static int _DMax_Compute(VL6180xDev_t dev, VL6180x_RangeData_t *pRange)
 
 	rtnAmbRate = pRange->rtnAmbRate;
 	if (rtnAmbRate  < rtnAmbLowLimit_KCps) {
-		DMax = _DMax_RawValueAtRateKCps(dev, rtnAmbRate);
-		scaling = _GetUpscale(dev);
+		DMax = _DMax_RawValueAtRateKCps(handle, rtnAmbRate);
+		scaling = _GetUpscale(handle);
 		HwLimitAtScale = UpperLimitLookUP[scaling - 1];
 
 		if (DMax > _DMaxData(ClipSnrLimit)) {

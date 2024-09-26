@@ -147,7 +147,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "vl6180x_def.h"
 
-#include "driver/i2c.h"   /*!< user specific field */
+#include "driver/i2c_master.h"   /*!< user specific field */
 
 //TODO: modify this
 #if VL6180x_SINGLE_DEVICE_DRIVER
@@ -210,7 +210,7 @@ typedef struct MyDev_t *VL6180xDev_t;
  * @param dev The device
  * @ingroup api_platform
  */
-void VL6180x_PollDelay(VL6180xDev_t dev); /* usualy best implemanted a a real fucntion */
+void VL6180x_PollDelay(); /* usualy best implemanted a a real fucntion */
 
 /** @def VL6180x_PollDelay
  *  @brief Default value : does nothing. Macro to be deleted it you implement a real function

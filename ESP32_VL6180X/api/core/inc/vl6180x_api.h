@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright © 2015, STMicroelectronics International N.V.
+Copyright ï¿½ 2015, STMicroelectronics International N.V.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -121,7 +121,7 @@ extern "C" {
  * @param dev  The device
  * @return     0 on success
  */
-int VL6180x_WaitDeviceBooted(VL6180xDev_t dev);
+int VL6180x_WaitDeviceBooted(i2c_master_dev_handle_t* handle);
 
 /**
  *
@@ -136,7 +136,7 @@ int VL6180x_WaitDeviceBooted(VL6180xDev_t dev);
  * @param dev  The device
  * @return     0 on success,  @a #CALIBRATION_WARNING if failed
  */
-int VL6180x_InitData(VL6180xDev_t dev);
+int VL6180x_InitData(i2c_master_dev_handle_t* handle);
 
 /**
  * @brief Configure GPIO1 function and set polarity.
@@ -156,7 +156,7 @@ int VL6180x_InitData(VL6180xDev_t dev);
  *      use @a #INTR_POL_LOW (falling edge) or @a #INTR_POL_HIGH (rising edge)
  * @return 0 on success
  */
-int VL6180x_SetupGPIO1(VL6180xDev_t dev, uint8_t IntFunction, int ActiveHigh);
+int VL6180x_SetupGPIO1(i2c_master_dev_handle_t* handle, uint8_t IntFunction, int ActiveHigh);
 
  /**
   * @brief  Prepare device for operation
@@ -171,7 +171,7 @@ int VL6180x_SetupGPIO1(VL6180xDev_t dev, uint8_t IntFunction, int ActiveHigh);
   * @param dev   The device
   * @return      0 on success
   */
-int VL6180x_Prepare(VL6180xDev_t dev);
+int VL6180x_Prepare(i2c_master_dev_handle_t* handle);
 
  /** @}  */
 
@@ -187,14 +187,14 @@ int VL6180x_Prepare(VL6180xDev_t dev);
  *
  * @details End user should ensure device is in idle state and not already running
  */
-int VL6180x_RangeStartContinuousMode(VL6180xDev_t dev);
+int VL6180x_RangeStartContinuousMode(i2c_master_dev_handle_t* handle);
 
 /**
  * @brief Start single shot ranging measure
  *
  * @details End user should ensure device is in idle state and not already running
  */
-int VL6180x_RangeStartSingleShot(VL6180xDev_t dev);
+int VL6180x_RangeStartSingleShot(i2c_master_dev_handle_t* handle);
 
 /**
  * @brief Set maximum convergence time
@@ -208,7 +208,7 @@ int VL6180x_RangeStartSingleShot(VL6180xDev_t dev);
  * @param MaxConTime_msec
  * @return 0 on success. <0 on error. >0 for calibration warning status
  */
-int VL6180x_RangeSetMaxConvergenceTime(VL6180xDev_t dev, uint8_t  MaxConTime_msec);
+int VL6180x_RangeSetMaxConvergenceTime(i2c_master_dev_handle_t* handle, uint8_t  MaxConTime_msec);
 
 /**
   * @brief Single shot Range measurement in polling mode.
@@ -230,7 +230,7 @@ int VL6180x_RangeSetMaxConvergenceTime(VL6180xDev_t dev, uint8_t  MaxConTime_mse
   *
   * \sa ::VL6180x_RangeData_t
   */
-int VL6180x_RangePollMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData);
+int VL6180x_RangePollMeasurement(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData);
 
 /**
  * @brief Check for measure readiness and get it if ready
@@ -249,7 +249,7 @@ int VL6180x_RangePollMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeDa
  * @param pRangeData  Will be populated with the result ranging data if available
  * @return  0 on success and <0 in case of error. Please check pRangeData.errorStatus to check is new measurement is ready or not.
  */
-int VL6180x_RangeGetMeasurementIfReady(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData);
+int VL6180x_RangeGetMeasurementIfReady(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData);
 
 /**
  * @brief Retrieve range measurements set  from device
@@ -266,7 +266,7 @@ int VL6180x_RangeGetMeasurementIfReady(VL6180xDev_t dev, VL6180x_RangeData_t *pR
  * @param pRangeData  Pointer to the data structure to fill up
  * @return            0 on success
  */
-int VL6180x_RangeGetMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeData);
+int VL6180x_RangeGetMeasurement(i2c_master_dev_handle_t* handle, VL6180x_RangeData_t *pRangeData);
 
 /**
  * @brief Get ranging result and only that
@@ -282,7 +282,7 @@ int VL6180x_RangeGetMeasurement(VL6180xDev_t dev, VL6180x_RangeData_t *pRangeDat
  * @param pRange_mm  Pointer to range distance
  * @return           0 on success
  */
-int VL6180x_RangeGetResult(VL6180xDev_t dev, int32_t *pRange_mm);
+int VL6180x_RangeGetResult(i2c_master_dev_handle_t* handle, int32_t *pRange_mm);
 
 /**
  * @brief Configure ranging interrupt reported to application
@@ -296,7 +296,7 @@ int VL6180x_RangeGetResult(VL6180xDev_t dev, int32_t *pRange_mm);
  *   @a #CONFIG_GPIO_INTERRUPT_NEW_SAMPLE_READY
  * @return   0 on success
  */
-int VL6180x_RangeConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt);
+int VL6180x_RangeConfigInterrupt(i2c_master_dev_handle_t* handle, uint8_t ConfigGpioInt);
 
 
 /**
@@ -325,7 +325,7 @@ int VL6180x_RangeConfigInterrupt(VL6180xDev_t dev, uint8_t ConfigGpioInt);
  * @param pIntStatus Pointer to status variable to update
  * @return           0 on success
  */
-int VL6180x_RangeGetInterruptStatus(VL6180xDev_t dev, uint8_t *pIntStatus);
+int VL6180x_RangeGetInterruptStatus(i2c_master_dev_handle_t* handle, uint8_t *pIntStatus);
 
 #if VL6180x_RANGE_STATUS_ERRSTRING
 
@@ -472,7 +472,7 @@ int VL6180x_AlsGetInterruptStatus(VL6180xDev_t dev, uint8_t *pIntStatus);
  * @param dev
  * @return 0 on success
  */
-int VL6180x_StaticInit(VL6180xDev_t dev);
+int VL6180x_StaticInit(i2c_master_dev_handle_t* handle);
 
  /** @}  */
 
@@ -490,7 +490,7 @@ int VL6180x_StaticInit(VL6180xDev_t dev);
  *                   @ref VL6180x_ErrCode_t::TIME_OUT for time out \n
  *                   @ref VL6180x_ErrCode_t::INVALID_PARAMS if MaxLop<1
  */
-int VL6180x_RangeWaitDeviceReady(VL6180xDev_t dev, int MaxLoop);
+int VL6180x_RangeWaitDeviceReady(i2c_master_dev_handle_t* handle, int MaxLoop);
 
 /**
  * @brief Program Inter measurement period (used only in continuous mode)
@@ -502,7 +502,7 @@ int VL6180x_RangeWaitDeviceReady(VL6180xDev_t dev, int MaxLoop);
  * @param InterMeasTime_msec Requires inter-measurement time in msec
  * @return 0 on success
  */
-int VL6180x_RangeSetInterMeasPeriod(VL6180xDev_t dev, uint32_t  InterMeasTime_msec);
+int VL6180x_RangeSetInterMeasPeriod(i2c_master_dev_handle_t* handle, uint32_t  InterMeasTime_msec);
 
 
 /**
@@ -525,7 +525,7 @@ int VL6180x_RangeSetInterMeasPeriod(VL6180xDev_t dev, uint32_t  InterMeasTime_ms
  * @return          0 on success when up-scale support is not configured it fail for any
  *                  scaling than the one statically configured.
  */
-int VL6180x_UpscaleSetScaling(VL6180xDev_t dev, uint8_t scaling);
+int VL6180x_UpscaleSetScaling(i2c_master_dev_handle_t* handle, uint8_t scaling);
 
 /**
  * @brief Get current ranging scaling factor
@@ -533,7 +533,7 @@ int VL6180x_UpscaleSetScaling(VL6180xDev_t dev, uint8_t scaling);
  * @param dev The device
  * @return    The current scaling factor
  */
-int VL6180x_UpscaleGetScaling(VL6180xDev_t dev);
+int VL6180x_UpscaleGetScaling(i2c_master_dev_handle_t* handle);
 
 
 /**
@@ -555,7 +555,7 @@ int VL6180x_UpscaleGetScaling(VL6180xDev_t dev);
  * @param dev The device
  * @return    The maximal range limit for actual mode and scaling
  */
-uint16_t VL6180x_GetUpperLimit(VL6180xDev_t dev);
+uint16_t VL6180x_GetUpperLimit(i2c_master_dev_handle_t* handle);
 
 /**
  * @brief Apply low and high ranging thresholds that are considered only in continuous mode
@@ -574,7 +574,7 @@ uint16_t VL6180x_GetUpperLimit(VL6180xDev_t dev);
  * @param SafeHold  Use of group parameters hold to surround threshold programming.
  * @return  0 On success
  */
-int VL6180x_RangeSetThresholds(VL6180xDev_t dev, uint16_t low, uint16_t high, int SafeHold);
+int VL6180x_RangeSetThresholds(i2c_master_dev_handle_t* handle, uint16_t low, uint16_t high, int SafeHold);
 
 /**
  * @brief  Get scaled high and low threshold from device
@@ -590,7 +590,7 @@ int VL6180x_RangeSetThresholds(VL6180xDev_t dev, uint16_t low, uint16_t high, in
  * @return 0 on success, return value is undefined if both low and high are NULL
  * @warning return value is undefined if both low and high are NULL
  */
-int VL6180x_RangeGetThresholds(VL6180xDev_t dev, uint16_t *low, uint16_t *high);
+int VL6180x_RangeGetThresholds(i2c_master_dev_handle_t* handle, uint16_t *low, uint16_t *high);
 
 /**
  * @brief Set ranging raw thresholds (scaling not considered so not recommended to use it)
@@ -600,7 +600,7 @@ int VL6180x_RangeGetThresholds(VL6180xDev_t dev, uint16_t *low, uint16_t *high);
  * @param high raw high threshold set to raw  register
  * @return 0 on success
  */
-int VL6180x_RangeSetRawThresholds(VL6180xDev_t dev, uint8_t low, uint8_t high);
+int VL6180x_RangeSetRawThresholds(i2c_master_dev_handle_t* handle, uint8_t low, uint8_t high);
 
 /**
  * @brief Set Early Convergence Estimate ratio
@@ -613,7 +613,7 @@ int VL6180x_RangeSetRawThresholds(VL6180xDev_t dev, uint8_t low, uint8_t high);
  * @param FactorD    ECE factor D in M/D
  * @return           0 on success. <0 on error. >0 on warning
  */
-int VL6180x_RangeSetEceFactor(VL6180xDev_t dev, uint16_t  FactorM, uint16_t FactorD);
+int VL6180x_RangeSetEceFactor(i2c_master_dev_handle_t* handle, uint16_t  FactorM, uint16_t FactorD);
 
 /**
  * @brief Set Early Convergence Estimate state (See #SYSRANGE_RANGE_CHECK_ENABLES register)
@@ -621,7 +621,7 @@ int VL6180x_RangeSetEceFactor(VL6180xDev_t dev, uint16_t  FactorM, uint16_t Fact
  * @param enable    State to be set 0=disabled, otherwise enabled
  * @return          0 on success
  */
-int VL6180x_RangeSetEceState(VL6180xDev_t dev, int enable);
+int VL6180x_RangeSetEceState(i2c_master_dev_handle_t* handle, int enable);
 
 /**
  * @brief Set activation state of the wrap around filter
@@ -629,14 +629,14 @@ int VL6180x_RangeSetEceState(VL6180xDev_t dev, int enable);
  * @param state New activation state (0=off,  otherwise on)
  * @return      0 on success
  */
-int VL6180x_FilterSetState(VL6180xDev_t dev, int state);
+int VL6180x_FilterSetState(i2c_master_dev_handle_t* handle, int state);
 
 /**
  * Get activation state of the wrap around filter
  * @param dev  The device
  * @return     Filter enabled or not, when filter is not supported it always returns 0S
  */
-int VL6180x_FilterGetState(VL6180xDev_t dev);
+int VL6180x_FilterGetState(i2c_master_dev_handle_t* handle);
 
 
 /**
@@ -645,14 +645,14 @@ int VL6180x_FilterGetState(VL6180xDev_t dev);
  * @param state New activation state (0=off,  otherwise on)
  * @return      0 on success
  */
-int VL6180x_DMaxSetState(VL6180xDev_t dev, int state);
+int VL6180x_DMaxSetState(i2c_master_dev_handle_t* handle, int state);
 
 /**
  * Get activation state of DMax computation
  * @param dev  The device
  * @return     Filter enabled or not, when filter is not supported it always returns 0S
  */
-int VL6180x_DMaxGetState(VL6180xDev_t dev);
+int VL6180x_DMaxGetState(i2c_master_dev_handle_t* handle);
 
 
 /**
@@ -666,7 +666,7 @@ int VL6180x_DMaxGetState(VL6180xDev_t dev);
  * @param mode  A combination of working mode (#MODE_SINGLESHOT or #MODE_CONTINUOUS) and start/stop condition (#MODE_START_STOP) \n
  * @return      0 on success
  */
-int VL6180x_RangeSetSystemMode(VL6180xDev_t dev, uint8_t mode);
+int VL6180x_RangeSetSystemMode(i2c_master_dev_handle_t* handle, uint8_t mode);
 
 /**
  * @brief Enable/disable range ignore feature
@@ -679,7 +679,7 @@ int VL6180x_RangeSetSystemMode(VL6180xDev_t dev, uint8_t mode);
  * @param EnableState     Feature state to set 0= off else =on
  * @return                0 on success
  */
-int VL6180x_RangeIgnoreSetEnable(VL6180xDev_t dev, int EnableState);
+int VL6180x_RangeIgnoreSetEnable(i2c_master_dev_handle_t* handle, int EnableState);
 
 /**
  * @brief Configure Range ignore feature
@@ -693,7 +693,7 @@ int VL6180x_RangeIgnoreSetEnable(VL6180xDev_t dev, int EnableState);
  * @param IgnoreThreshold	Ignore threshold in fixpoint 9.7 MegaCount/sec
  * @return
  */
-int VL6180x_RangeIgnoreConfigure(VL6180xDev_t dev, uint16_t ValidHeight_mm, uint16_t IgnoreThreshold);
+int VL6180x_RangeIgnoreConfigure(i2c_master_dev_handle_t* handle, uint16_t ValidHeight_mm, uint16_t IgnoreThreshold);
 /** @}  */
 
 /** @defgroup api_ll_range_calibration Ranging calibration functions
@@ -710,7 +710,7 @@ int VL6180x_RangeIgnoreConfigure(VL6180xDev_t dev, uint16_t ValidHeight_mm, uint
  * @param dev  The device
  * @return part to part calibration offset from device
  */
-int8_t VL6180x_GetOffsetCalibrationData(VL6180xDev_t dev);
+int8_t VL6180x_GetOffsetCalibrationData(i2c_master_dev_handle_t* handle);
 
 /**
  * Set or over-write part to part calibration offset and apply it immediately
@@ -719,7 +719,7 @@ int8_t VL6180x_GetOffsetCalibrationData(VL6180xDev_t dev);
  * @param offset   Offset
  * @return  0 on success
  */
-int  VL6180x_SetOffsetCalibrationData(VL6180xDev_t dev, int8_t offset);
+int  VL6180x_SetOffsetCalibrationData(i2c_master_dev_handle_t* handle, int8_t offset);
 
 /**
  * @brief Set Cross talk compensation rate
@@ -731,7 +731,7 @@ int  VL6180x_SetOffsetCalibrationData(VL6180xDev_t dev, int8_t offset);
  * @param Rate Compensation rate (9.7 fix point) see datasheet for details
  * @return     0 on success
  */
-int  VL6180x_SetXTalkCompensationRate(VL6180xDev_t dev, FixPoint97_t Rate);
+int  VL6180x_SetXTalkCompensationRate(i2c_master_dev_handle_t* handle, FixPoint97_t Rate);
 
 /** @}  */
 
@@ -793,7 +793,7 @@ int VL6180x_AlsSetSystemMode(VL6180xDev_t dev, uint8_t mode);
  * @param Hold  Group parameter Hold state to be set (on/off)
  * @return      0 on success
  */
-int VL6180x_SetGroupParamHold(VL6180xDev_t dev, int Hold);
+int VL6180x_SetGroupParamHold(i2c_master_dev_handle_t* handle, int Hold);
 
 /**
  * @brief Set new device i2c address
@@ -805,7 +805,7 @@ int VL6180x_SetGroupParamHold(VL6180xDev_t dev, int Hold);
  * @param NewAddr   The new i2c address (8 bits)
  * @return          0 on success
  */
-int VL6180x_SetI2CAddress(VL6180xDev_t dev, uint8_t NewAddr);
+int VL6180x_SetI2CAddress(i2c_master_dev_handle_t* handle, uint8_t NewAddr);
 
 /**
  * @brief Fully configure gpio 0/1 pin : polarity and functionality
@@ -816,7 +816,7 @@ int VL6180x_SetI2CAddress(VL6180xDev_t dev, uint8_t NewAddr);
  * @param ActiveHigh   Set active high polarity, or active low see @a ::IntrPol_e
  * @return             0 on success
  */
-int VL6180x_SetupGPIOx(VL6180xDev_t dev, int pin, uint8_t IntFunction, int ActiveHigh);
+int VL6180x_SetupGPIOx(i2c_master_dev_handle_t* handle, int pin, uint8_t IntFunction, int ActiveHigh);
 
 
 /**
@@ -827,7 +827,7 @@ int VL6180x_SetupGPIOx(VL6180xDev_t dev, int pin, uint8_t IntFunction, int Activ
  * @param active_high  select active high or low polarity using @ref IntrPol_e
  * @return             0 on success
  */
-int VL6180x_SetGPIOxPolarity(VL6180xDev_t dev, int pin, int active_high);
+int VL6180x_SetGPIOxPolarity(i2c_master_dev_handle_t* handle, int pin, int active_high);
 
 /**
  * Select interrupt functionality for the given GPIO
@@ -840,7 +840,7 @@ int VL6180x_SetGPIOxPolarity(VL6180xDev_t dev, int pin, int active_high);
  * @param functionality  Pin functionality : either #GPIOx_SELECT_OFF or #GPIOx_SELECT_GPIO_INTERRUPT_OUTPUT (refer to #SYSTEM_MODE_GPIO1 register definition)
  * @return              0 on success
  */
-int VL6180x_SetGPIOxFunctionality(VL6180xDev_t dev, int pin, uint8_t functionality);
+int VL6180x_SetGPIOxFunctionality(i2c_master_dev_handle_t* handle, int pin, uint8_t functionality);
 
 /**
  * #brief Disable and turn to Hi-Z gpio output pin
@@ -849,7 +849,7 @@ int VL6180x_SetGPIOxFunctionality(VL6180xDev_t dev, int pin, uint8_t functionali
  * @param pin  The pin number to disable 0 or 1
  * @return     0 on success
  */
-int VL6180x_DisableGPIOxOut(VL6180xDev_t dev, int pin);
+int VL6180x_DisableGPIOxOut(i2c_master_dev_handle_t* handle, int pin);
 
 /**
  * @def msec_2_i2cloop
@@ -893,7 +893,7 @@ typedef enum {
  * @param status Ptr to interrupt status. You can use @a IntrStatus_t::val
  * @return 0 on success
  */
-int VL6180x_GetInterruptStatus(VL6180xDev_t dev, uint8_t *status);
+int VL6180x_GetInterruptStatus(i2c_master_dev_handle_t* handle, uint8_t *status);
 
 /**
  * @brief Clear given system interrupt condition
@@ -904,7 +904,7 @@ int VL6180x_GetInterruptStatus(VL6180xDev_t dev, uint8_t *status);
  * @param IntClear  Which interrupt source to clear. Use any combinations of #INTERRUPT_CLEAR_RANGING , #INTERRUPT_CLEAR_ALS , #INTERRUPT_CLEAR_ERROR.
  * @return  0       On success
  */
-int VL6180x_ClearInterrupt(VL6180xDev_t dev, uint8_t IntClear);
+int VL6180x_ClearInterrupt(i2c_master_dev_handle_t* handle, uint8_t IntClear);
 
 /**
  * @brief Clear error interrupt
@@ -938,7 +938,7 @@ int VL6180x_ClearInterrupt(VL6180xDev_t dev, uint8_t IntClear);
  * @param data  8 bit register data
  * @return success
  */
-int VL6180x_WrByte(VL6180xDev_t dev, uint16_t index, uint8_t data);
+int VL6180x_WrByte(i2c_master_dev_handle_t* handle, uint16_t index, uint8_t data);
 /**
  * Thread safe VL6180x Update (rd/modify/write) single byte register
  *
@@ -950,7 +950,7 @@ int VL6180x_WrByte(VL6180xDev_t dev, uint16_t index, uint8_t data);
  * @param OrData   8 bit or data
  * @return 0 on success
  */
-int VL6180x_UpdateByte(VL6180xDev_t dev, uint16_t index, uint8_t AndData, uint8_t OrData);
+int VL6180x_UpdateByte(i2c_master_dev_handle_t* handle, uint16_t index, uint8_t AndData, uint8_t OrData);
 /**
  * Write VL6180x word register
  * @param dev   The device
@@ -958,7 +958,7 @@ int VL6180x_UpdateByte(VL6180xDev_t dev, uint16_t index, uint8_t AndData, uint8_
  * @param data  16 bit register data
  * @return  0 on success
  */
-int VL6180x_WrWord(VL6180xDev_t dev, uint16_t index, uint16_t data);
+int VL6180x_WrWord(i2c_master_dev_handle_t* handle, uint16_t index, uint16_t data);
 /**
  * Write VL6180x double word (4 byte) register
  * @param dev   The device
@@ -966,7 +966,7 @@ int VL6180x_WrWord(VL6180xDev_t dev, uint16_t index, uint16_t data);
  * @param data  32 bit register data
  * @return  0 on success
  */
-int VL6180x_WrDWord(VL6180xDev_t dev, uint16_t index, uint32_t data);
+int VL6180x_WrDWord(i2c_master_dev_handle_t* handle, uint16_t index, uint32_t data);
 
 /**
  * Read VL6180x single byte register
@@ -975,7 +975,7 @@ int VL6180x_WrDWord(VL6180xDev_t dev, uint16_t index, uint32_t data);
  * @param data  pointer to 8 bit data
  * @return 0 on success
  */
-int VL6180x_RdByte(VL6180xDev_t dev, uint16_t index, uint8_t *data);
+int VL6180x_RdByte(i2c_master_dev_handle_t* handle, uint16_t index, uint8_t *data);
 
 /**
  * Read VL6180x word (2byte) register
@@ -984,7 +984,7 @@ int VL6180x_RdByte(VL6180xDev_t dev, uint16_t index, uint8_t *data);
  * @param data  pointer to 16 bit data
  * @return 0 on success
  */
-int VL6180x_RdWord(VL6180xDev_t dev, uint16_t index, uint16_t *data);
+int VL6180x_RdWord(i2c_master_dev_handle_t* handle, uint16_t index, uint16_t *data);
 
 /**
  * Read VL6180x dword (4byte) register
@@ -993,7 +993,7 @@ int VL6180x_RdWord(VL6180xDev_t dev, uint16_t index, uint16_t *data);
  * @param data  pointer to 32 bit data
  * @return 0 on success
  */
-int VL6180x_RdDWord(VL6180xDev_t dev, uint16_t index, uint32_t *data);
+int VL6180x_RdDWord(i2c_master_dev_handle_t* handle, uint16_t index, uint32_t *data);
 
 
 /**
@@ -1005,7 +1005,7 @@ int VL6180x_RdDWord(VL6180xDev_t dev, uint16_t index, uint32_t *data);
  * @param nData number of data bytes to read
  * @return 0 on success
  */
-int VL6180x_RdMulti(VL6180xDev_t dev, uint16_t index, uint8_t *data, int nData);
+int VL6180x_RdMulti(i2c_master_dev_handle_t* handle, uint16_t index, uint8_t *data, int nData);
 
 /** @}  */
 

@@ -85,7 +85,7 @@ typedef struct MyVL6180Dev_t *VL6180xDev_t;
  * @return      0 on success
  * @ingroup cci_i2c
  */
-int  VL6180x_I2CWrite(VL6180xDev_t dev, uint8_t  *buff, uint8_t len);
+int  VL6180x_I2CWrite(i2c_master_dev_handle_t* handle, uint8_t  *buff, uint8_t len);
 
 /**
  *
@@ -96,7 +96,7 @@ int  VL6180x_I2CWrite(VL6180xDev_t dev, uint8_t  *buff, uint8_t len);
  * @return      0 on success
  * @ingroup  cci_i2c
  */
-int VL6180x_I2CRead(VL6180xDev_t dev, uint8_t *buff, uint8_t len);
+int VL6180x_I2CRead(i2c_master_dev_handle_t* handle, uint8_t *buff, uint8_t len);
 
 
 /**
@@ -118,7 +118,7 @@ int VL6180x_I2CRead(VL6180xDev_t dev, uint8_t *buff, uint8_t len);
  * @param dev  the device
  * @ingroup cci_i2c
  */
-void VL6180x_GetI2CAccess(VL6180xDev_t dev);
+void VL6180x_GetI2CAccess(i2c_master_dev_handle_t* handle);
 
 /**
  * @def VL6180x_GetI2CAccess
@@ -135,7 +135,7 @@ void VL6180x_GetI2CAccess(VL6180xDev_t dev);
  * @param dev The device
  * @ingroup cci_i2c
  */
-void VL6180x_DoneI2CAccess(VL6180xDev_t dev);
+void VL6180x_DoneI2CAccess(i2c_master_dev_handle_t* handle);
 
 /** @def VL6180x_DoneI2CAcces
  * @brief Default 'do-nothing' macro for @a VL6180x_DoneI2CAcces(). Delete if used.
@@ -154,7 +154,7 @@ void VL6180x_DoneI2CAccess(VL6180xDev_t dev);
  * @return        The buffer (cannot fail return not checked)
  * @ingroup cci_i2c
  */
-uint8_t *VL6180x_GetI2cBuffer(VL6180xDev_t dev, int n_byte);
+uint8_t *VL6180x_GetI2cBuffer(i2c_master_dev_handle_t* handle, int n_byte);
 #if I2C_BUFFER_CONFIG == 2
 #error /* TODO add your macro of code here for VL6180x_GetI2cBuffer */
 #endif

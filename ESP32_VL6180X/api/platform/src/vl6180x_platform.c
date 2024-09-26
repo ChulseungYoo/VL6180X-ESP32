@@ -2,7 +2,6 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <driver/i2c.h>
 #include <esp_err.h>
 #include <esp_log.h>
 
@@ -17,7 +16,7 @@
  * @param dev The device
  * @ingroup api_platform
  */
-void VL6180x_PollDelay(VL6180xDev_t dev)
+void VL6180x_PollDelay()
 {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
