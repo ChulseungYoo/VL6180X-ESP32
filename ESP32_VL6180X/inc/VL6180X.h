@@ -15,23 +15,17 @@
 
 #define VL6180x_I2C_ADDRESS_DEFAULT 0x29
 
-typedef struct {
-    i2c_port_t i2c_port;
-    i2c_master_dev_handle_t* handle;
-    int32_t TimingBudgetMicroSeconds;
-} VL6180X;
-
-bool VL6180X_init(VL6180X* vl);
-bool VL6180X_read(VL6180X* vl, uint16_t *pRangeMilliMeter);
+bool VL6180X_init(i2c_master_dev_handle_t* handle);
+bool VL6180X_read(i2c_master_dev_handle_t* handle, uint16_t *pRangeMilliMeter);
 
 
-bool VL6180X_init(VL6180X* vl) {
+bool VL6180X_init(i2c_master_dev_handle_t* handle) {
     /* device init */
-    if (VL6180x_InitData(vl->handle) < 0) {
+    if (VL6180x_InitData(handle) < 0) {
         ESP_LOGE(TAG, "InitData");
         return false;
     }
-    if (VL6180x_Prepare(vl->handle) < 0) {
+    if (VL6180x_Prepare(handle) < 0) {
         ESP_LOGE(TAG, "Prepare");
         return false;
     }
@@ -40,10 +34,10 @@ bool VL6180X_init(VL6180X* vl) {
 
 
 
-bool VL6180X_read(VL6180X* vl, uint16_t *pRangeMilliMeter) {
+bool VL6180X_read(i2c_master_dev_handle_t* handle, uint16_t *pRangeMilliMeter) {
     // ESP_LOGI(TAG, "VL6180X_read");
     VL6180x_RangeData_t Range;
-    int status = VL6180x_RangePollMeasurement(vl->handle, &Range);
+    int status = VL6180x_RangePollMeasurement(handle, &Range);
     if (status != 0 || Range.errorStatus != 0) {
         ESP_LOGW(TAG, "i2c status: %d, range status: %s", status,
                  VL6180x_RangeGetStatusErrString(Range.errorStatus));
