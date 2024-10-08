@@ -11,7 +11,6 @@
 #include "vl6180x_platform.h"
 
 #include "esp_log.h"
-#define TAG "VL6180X"
 
 #define VL6180x_I2C_ADDRESS_DEFAULT 0x29
 
@@ -22,11 +21,11 @@ bool VL6180X_read(i2c_master_dev_handle_t* handle, uint16_t *pRangeMilliMeter);
 bool VL6180X_init(i2c_master_dev_handle_t* handle) {
     /* device init */
     if (VL6180x_InitData(handle) < 0) {
-        ESP_LOGE(TAG, "InitData");
+        ESP_LOGE("VL6180", "InitData");
         return false;
     }
     if (VL6180x_Prepare(handle) < 0) {
-        ESP_LOGE(TAG, "Prepare");
+        ESP_LOGE("VL6180", "Prepare");
         return false;
     }
     return true;
@@ -39,7 +38,7 @@ bool VL6180X_read(i2c_master_dev_handle_t* handle, uint16_t *pRangeMilliMeter) {
     VL6180x_RangeData_t Range;
     int status = VL6180x_RangePollMeasurement(handle, &Range);
     if (status != 0 || Range.errorStatus != 0) {
-        ESP_LOGW(TAG, "i2c status: %d, range status: %s", status,
+        ESP_LOGW("VL6180", "i2c status: %d, range status: %s", status,
                  VL6180x_RangeGetStatusErrString(Range.errorStatus));
         return false;
     }
